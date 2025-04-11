@@ -18,8 +18,10 @@
   <!-- Video en vivo -->
   <video id="video" width="320" height="240" autoplay muted playsinline></video>
 
+
   <!-- Contenedor para las fotos capturadas -->
-  <div id="photos"></div>
+<div id="photos" style="display: flex; flex-wrap: wrap;"></div> <!-- Flexbox para mostrar las fotos -->
+
 
   <!-- Botón para captura manual -->
   <button onclick="capturePhoto()">Capturar Foto Manual</button>
@@ -28,7 +30,7 @@
   <div>
     <label for="photo-count">Cantidad de Fotos:</label>
     <input type="range" id="photo-count" min="1" max="20" value="5" />
-    <span id="photo-count-value">5</span>
+    <span id="photo-count-value">5</span> <!-- Este valor se actualizará con el slider -->
   </div>
 
   <!-- Logs de depuración -->
@@ -36,5 +38,19 @@
     <h3>Debug Logs</h3>
     <pre id="debug-console"></pre>
   </div>
+
+  <script>
+    // Actualiza el valor del slider en tiempo real
+    const photoCountSlider = document.getElementById('photo-count');
+    const photoCountValue = document.getElementById('photo-count-value');
+
+    // Event listener para el slider de cantidad de fotos
+    photoCountSlider.addEventListener('input', () => {
+      photoCountValue.textContent = photoCountSlider.value;  // Actualiza el valor en tiempo real
+    });
+
+    // Asegúrate de que el valor inicial también esté mostrado
+    photoCountValue.textContent = photoCountSlider.value;
+  </script>
 </body>
 </html>
