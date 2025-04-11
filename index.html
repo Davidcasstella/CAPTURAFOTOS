@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Captura Automática de Fotos y Video</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+  <script defer src="js/capture.js"></script>
+</head>
+<body>
+  <h1>Captura Automática de Fotos y Video</h1>
+
+  <!-- Controles para iniciar la cámara -->
+  <button onclick="startVideo()">Iniciar Cámara</button>
+  <button onclick="stopRecording()">Detener Grabación</button>
+
+  <!-- Video en vivo -->
+  <video id="video" width="320" height="240" autoplay muted playsinline></video>
+
+  <!-- Contenedor para las fotos capturadas -->
+  <div id="photos"></div>
+
+  <!-- Botón para captura manual -->
+  <button onclick="capturePhoto()">Capturar Foto Manual</button>
+
+  <!-- Configuración para la cantidad de fotos -->
+  <div>
+    <label for="photo-count">Cantidad de Fotos:</label>
+    <input type="range" id="photo-count" min="1" max="20" value="5" />
+    <span id="photo-count-value">5</span>
+  </div>
+
+  <!-- Logs de depuración -->
+  <div id="debug-logs" style="background: #eee; padding: 1em; margin-top: 1em;">
+    <h3>Debug Logs</h3>
+    <pre id="debug-console"></pre>
+  </div>
+</body>
+</html>
