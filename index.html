@@ -5,7 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Captura Automática de Fotos y Video</title>
   <link rel="stylesheet" href="css/style.css">
-  <script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+  <!-- Cargar TensorFlow.js -->
+  <script defer src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+  <!-- Cargar COCO-SSD (para detección de personas) -->
+  <script defer src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+  <!-- Cargar el archivo JavaScript que manejará la lógica -->
   <script defer src="js/capture.js"></script>
   <style>
     /* Establecemos un Grid para la disposición */

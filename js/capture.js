@@ -91,64 +91,30 @@ function startRecording() {
   isVideoInProgress = true;  // Indicar que la grabación está en progreso
   logDebug("Grabación de video iniciada...");
 
-  // Iniciar la detección de movimiento cada 500 ms
-  setInterval(detectMovement, 1000); // Verificar el movimiento cada 500 ms
-
-  // Detener la grabación después de 10 segundos
-  recordingTimeout = setTimeout(() => {
-    mediaRecorder.stop();  // Detener la grabación después de 10 segundos
-    isVideoInProgress = false;  // Marcar que la grabación ha terminado
-  }, 10000);  // 10,000 ms = 10 segundos
+  // Iniciar la detección de movimiento cada 1000 ms
+  setInterval(detectPerson, 1000); // Verificar la detección cada segundo
 }
 
 /**
- * Detecta movimiento comparando imágenes consecutivas
+ * Detecta personas usando el modelo COCO-SSD de TensorFlow.js
  */
-let lastImageData = null;
-function detectMovement() {
-  const canvas = document.createElement('canvas');
-  const context = canvas.getContext('2d');
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  
-  context.drawImage(video, 0, 0, canvas.width, canvas.height);
-  
-  const currentImageData = context.getImageData(0, 0, canvas.width, canvas.height);
+async function detectPerson() {
+  const model = await cocoSsd.load();  // Cargar el modelo COCO-SSD
 
-  // Log para mostrar que se está detectando movimiento
-  logDebug("Detectando movimiento...");
+  const predictions = await model.detect(video);
 
-  if (lastImageData) {
-    const diff = compareImages(lastImageData, currentImageData);
-    logDebug("Valor de diff: " + diff); // Imprimir el valor de diff para depuración
+  // Filtrar las detecciones que corresponden a una persona
+  const personDetections = predictions.filter(prediction => prediction.class === 'person');
 
-    if (diff > 1500) { // Ajusta este valor según el nivel de sensibilidad
-      logDebug("¡Movimiento detectado! Capturando fotos...");
-      movementStatus.textContent = "¡Movimiento detectado!"; // Actualiza el estado de detección
-      capturePhotos();  // Captura las fotos solo cuando se detecte movimiento
-    } else {
-      logDebug("No se detectó movimiento. Diff es bajo.");
-      movementStatus.textContent = "No se detectó movimiento."; // Actualiza el estado de detección
-      stopCapturingPhotos(); // Detener las capturas de fotos si no se detecta movimiento
-    }
+  if (personDetections.length > 0) {
+    logDebug("Persona detectada. Capturando fotos...");
+    movementStatus.textContent = "¡Persona detectada!";
+    capturePhotos();  // Captura las fotos solo cuando se detecta una persona
   } else {
-    logDebug("No hay datos previos para comparar.");
+    logDebug("No se detectaron personas.");
+    movementStatus.textContent = "No se detectaron personas.";
+    stopCapturingPhotos(); // Detener las capturas de fotos si no se detecta una persona
   }
-  
-  lastImageData = currentImageData;
-}
-
-// Compara las imágenes para detectar movimiento
-function compareImages(imageData1, imageData2) {
-  const data1 = imageData1.data;
-  const data2 = imageData2.data;
-  let diff = 0;
-  
-  for (let i = 0; i < data1.length; i += 4) {
-    diff += Math.abs(data1[i] - data2[i]); // Compara cada componente RGBA
-  }
-
-  return diff;
 }
 
 /**
@@ -156,7 +122,7 @@ function compareImages(imageData1, imageData2) {
  */
 async function capturePhotos() {
   const photoCount = document.getElementById('photo-count').value; // Obtener cantidad de fotos desde el slider
-  photosCaptured = 0; // Reiniciar el contador de fotos cada vez que se detecta movimiento
+  photosCaptured = 0; // Reiniciar el contador de fotos cada vez que se detecta una persona
   isCapturingPhotos = true;
 
   // Bucle para capturar fotos de forma continua, pero con más tiempo entre cada captura
@@ -169,7 +135,7 @@ async function capturePhotos() {
       clearInterval(photoInterval);  // Detener el ciclo si no se está capturando fotos
       logDebug("Detenido ciclo de fotos.");
     }
-  }, 5000); // Captura una foto cada 5 segundos
+  }, 1000); // Captura una foto cada 1 segundo
 }
 
 /**
@@ -231,7 +197,7 @@ async function init() {
     logDebug("Metadata del video cargada. Dimensiones: " + video.videoWidth + "x" + video.videoHeight);
   });
   video.addEventListener('play', () => {
-    setInterval(detectMovement, 1000); // Verificar el movimiento cada 500 ms
+    setInterval(detectPerson, 1000); // Verificar la detección cada 1 segundo
   });
 }
 
