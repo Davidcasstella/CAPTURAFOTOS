@@ -1,6 +1,7 @@
 const video = document.getElementById('video');
 const photosDiv = document.getElementById('photos');
 const debugConsole = document.getElementById('debug-console');
+const movementStatus = document.getElementById('movement-status'); // Elemento para mostrar el estado de detección
 let capturing = false;
 let mediaRecorder;
 let recordedChunks = [];
@@ -90,14 +91,64 @@ function startRecording() {
   isVideoInProgress = true;  // Indicar que la grabación está en progreso
   logDebug("Grabación de video iniciada...");
 
-  // Capturar fotos mientras se graba el video
-  capturePhotos();  // Iniciar el ciclo de captura de fotos
+  // Iniciar la detección de movimiento cada 500 ms
+  setInterval(detectMovement, 1000); // Verificar el movimiento cada 500 ms
 
   // Detener la grabación después de 10 segundos
   recordingTimeout = setTimeout(() => {
     mediaRecorder.stop();  // Detener la grabación después de 10 segundos
     isVideoInProgress = false;  // Marcar que la grabación ha terminado
   }, 10000);  // 10,000 ms = 10 segundos
+}
+
+/**
+ * Detecta movimiento comparando imágenes consecutivas
+ */
+let lastImageData = null;
+function detectMovement() {
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext('2d');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  
+  context.drawImage(video, 0, 0, canvas.width, canvas.height);
+  
+  const currentImageData = context.getImageData(0, 0, canvas.width, canvas.height);
+
+  // Log para mostrar que se está detectando movimiento
+  logDebug("Detectando movimiento...");
+
+  if (lastImageData) {
+    const diff = compareImages(lastImageData, currentImageData);
+    logDebug("Valor de diff: " + diff); // Imprimir el valor de diff para depuración
+
+    if (diff > 1500) { // Ajusta este valor según el nivel de sensibilidad
+      logDebug("¡Movimiento detectado! Capturando fotos...");
+      movementStatus.textContent = "¡Movimiento detectado!"; // Actualiza el estado de detección
+      capturePhotos();  // Captura las fotos solo cuando se detecte movimiento
+    } else {
+      logDebug("No se detectó movimiento. Diff es bajo.");
+      movementStatus.textContent = "No se detectó movimiento."; // Actualiza el estado de detección
+      stopCapturingPhotos(); // Detener las capturas de fotos si no se detecta movimiento
+    }
+  } else {
+    logDebug("No hay datos previos para comparar.");
+  }
+  
+  lastImageData = currentImageData;
+}
+
+// Compara las imágenes para detectar movimiento
+function compareImages(imageData1, imageData2) {
+  const data1 = imageData1.data;
+  const data2 = imageData2.data;
+  let diff = 0;
+  
+  for (let i = 0; i < data1.length; i += 4) {
+    diff += Math.abs(data1[i] - data2[i]); // Compara cada componente RGBA
+  }
+
+  return diff;
 }
 
 /**
@@ -108,7 +159,7 @@ async function capturePhotos() {
   photosCaptured = 0; // Reiniciar el contador de fotos cada vez que se detecta movimiento
   isCapturingPhotos = true;
 
-  // Bucle para capturar fotos de forma continua
+  // Bucle para capturar fotos de forma continua, pero con más tiempo entre cada captura
   const photoInterval = setInterval(() => {
     if (isCapturingPhotos) {
       capturePhoto();  // Capturar foto
@@ -118,7 +169,15 @@ async function capturePhotos() {
       clearInterval(photoInterval);  // Detener el ciclo si no se está capturando fotos
       logDebug("Detenido ciclo de fotos.");
     }
-  }, 1000); // Captura una foto cada 1 segundo
+  }, 5000); // Captura una foto cada 5 segundos
+}
+
+/**
+ * Detiene la captura de fotos cuando no hay movimiento.
+ */
+function stopCapturingPhotos() {
+  isCapturingPhotos = false;
+  logDebug("Captura de fotos detenida.");
 }
 
 /**
@@ -163,67 +222,6 @@ async function capturePhoto() {
 }
 
 /**
- * Detecta movimiento comparando imágenes consecutivas
- */
-let lastImageData = null;
-function detectMovement() {
-  const canvas = document.createElement('canvas');
-  const context = canvas.getContext('2d');
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  
-  context.drawImage(video, 0, 0, canvas.width, canvas.height);
-  
-  const currentImageData = context.getImageData(0, 0, canvas.width, canvas.height);
-
-  // Log para mostrar que se está detectando movimiento
-  logDebug("Detectando movimiento...");
-
-  if (lastImageData) {
-    const diff = compareImages(lastImageData, currentImageData);
-    logDebug("Valor de diff: " + diff); // Imprimir el valor de diff para depuración
-
-    if (diff > 1000) { // Ajusta este valor según el nivel de sensibilidad
-      logDebug("¡Movimiento detectado! Capturando fotos...");
-      capturePhotos();  // Reinicia la captura de fotos cuando se detecte movimiento
-    } else {
-      logDebug("No se detectó movimiento. Diff es bajo.");
-    }
-  } else {
-    logDebug("No hay datos previos para comparar.");
-  }
-  
-  lastImageData = currentImageData;
-}
-
-// Compara las imágenes para detectar movimiento
-function compareImages(imageData1, imageData2) {
-  const data1 = imageData1.data;
-  const data2 = imageData2.data;
-  let diff = 0;
-  
-  for (let i = 0; i < data1.length; i += 4) {
-    diff += Math.abs(data1[i] - data2[i]); // Compara cada componente RGBA
-  }
-
-  return diff;
-}
-
-/**
- * Detecta cuerpos utilizando un modelo SSD (preentrenado en face-api.js).
- */
-async function detectBody() {
-  const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions());
-  logDebug("Detecciones encontradas: " + detections.length);
-  
-  // Si se detecta un cuerpo o movimiento, capturamos una foto
-  if (detections.length > 0) {
-    logDebug("Rostro detectado.");
-    capturePhotos();  // Llamar a la función para capturar fotos cuando se detecta un rostro
-  }
-}
-
-/**
  * Inicializa la aplicación: carga los modelos y configura los eventos del video.
  */
 async function init() {
@@ -233,7 +231,7 @@ async function init() {
     logDebug("Metadata del video cargada. Dimensiones: " + video.videoWidth + "x" + video.videoHeight);
   });
   video.addEventListener('play', () => {
-    setInterval(detectMovement, 500); // Verificar el movimiento cada 500 ms
+    setInterval(detectMovement, 1000); // Verificar el movimiento cada 500 ms
   });
 }
 
