@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bienvenido - Sistema de Fotos Canopy</title>
+  <!-- Incluir el CDN de Font Awesome -->
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+  <style>
+    /* Reseteo de márgenes y padding */
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    /* Fondo con degradado y diseño general */
+    body {
+      font-family: Arial, sans-serif;
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      background: linear-gradient(to top, #1a7fcb,#6a13a7 ); /* Degradado con verde y azul */
+      padding-top: 50px; /* Da espacio en la parte superior */
+    }
+
+    /* Contenedor principal */
+    .main-container {
+      text-align: center;
+      color: white;
+      width: 100%;
+      max-width: 800px;
+      padding: 20px;
+    }
+
+    /* Estilo para el título */
+    h1 {
+      font-size: 1.5vw; /* Ajuste del tamaño de la fuente */
+      margin-bottom: 20px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* Estilo para el texto debajo del título */
+    p {
+      font-size: 1.5rem;
+      margin-bottom: 30px;
+    }
+
+    /* Estilo para el botón de login en la parte superior derecha */
+    .btn-login {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      background-color: #00b894; /* Verde similar a la imagen */
+      color: white;
+      border: none;
+      padding: 8px 15px;
+      font-size: 14px;
+      border-radius: 5px;
+      cursor: pointer;
+      text-decoration: none;
+    }
+
+    .btn-login:hover {
+      background-color: #009f6a; /* Cambiar a un verde más oscuro al pasar el mouse */
+    }
+
+    /* Estilo para las carpetas */
+    .folders {
+      display: flex;
+      justify-content: center;
+      margin-top: 40px;
+      gap: 20px; /* Espaciado entre las carpetas */
+    }
+
+    .folder {
+      font-size: 80px; /* Tamaño del ícono */
+      color: white;
+      margin: 5px;
+      cursor: pointer;
+    }
+
+    .folder:hover {
+      color: #0984e3; /* Efecto al pasar el mouse */
+    }
+  </style>
+</head>
+<body>
+  <!-- Botón de Login en la parte superior derecha -->
+  <a href="login.html" class="btn-login">Login</a>
+
+  <div class="main-container">
+    <!-- Título en la parte superior centrado -->
+    <h1>BIENVENIDO AL SISTEMA DE FOTOS CANOPY</h1>
+    <p>Estas son las carpetas con fotos</p>
+
+    <!-- Carpetas con íconos de Font Awesome -->
+    <div class="folders">
+      <div class="folder" onclick="startCapture('carpeta1')"><i class="fas fa-folder"></i></div>
+      <div class="folder" onclick="startCapture('carpeta2')"><i class="fas fa-folder-open"></i></div>
+      <div class="folder" onclick="startCapture('carpeta3')"><i class="fas fa-folder"></i></div>
+    </div>
+  </div>
+
+  <script>
+    // Iniciar la captura de fotos
+    function startCapture(folder) {
+      // Aquí simularíamos la captura de fotos
+      capturePhoto(folder);
+    }
+
+    // Captura una foto y la guarda en el localStorage
+    function capturePhoto(folder) {
+      // Crear una foto simulada (usando una imagen base64 o capturada con getUserMedia)
+      const dataURL = 'guardarfotos'; // Solo un ejemplo
+
+      // Recuperar fotos guardadas en el localStorage
+      let storedPhotos = JSON.parse(localStorage.getItem(folder)) || [];
+
+      // Añadir la nueva foto al array de fotos de la carpeta
+      storedPhotos.push(dataURL);
+
+      // Guardar las fotos actualizadas en localStorage
+      localStorage.setItem(folder, JSON.stringify(storedPhotos));
+
+      // Redirigir a la página de fotos de esa carpeta
+      window.location.href = `fotos.html?folder=${folder}`;
+    }
+  </script>
+</body>
+</html>

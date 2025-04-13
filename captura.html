@@ -9,8 +9,9 @@
   <script defer src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
   <!-- Cargar COCO-SSD (para detección de personas) -->
   <script defer src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
-  <!-- Cargar el archivo JavaScript que manejará la lógica -->
   <script defer src="js/capture.js"></script>
+  <script defer src="login.html"></script>
+  <script defer src="Bienvenida.html"></script>
   <style>
     /* Establecemos un Grid para la disposición */
     .container {
@@ -58,6 +59,18 @@
       width: 100%;
     }
 
+    /* Estilo para los botones en fila horizontal */
+    #button-container {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      margin-top: 20px;
+    }
+
+    #button-container button {
+      width: 18%; /* Ajusta el tamaño de los botones para que quepan en una fila */
+    }
+
     /* Estilo para el estado de detección de movimiento */
     #movement-status {
       font-size: 18px;
@@ -94,10 +107,19 @@
       <!-- Botón para captura manual -->
       <button onclick="capturePhoto()">Capturar Foto Manual</button>
 
+      <!-- Contenedor para los botones en horizontal -->
+      <div id="button-container">
+        <!-- Nuevo botón para detener todos los procesos -->
+        <button onclick="stopAllProcesses()">Detener Procesos</button>
+
+        <!-- Nuevo botón para redirigir a Bienvenida -->
+        <button onclick="goToBienvenida()">Regresar a Bienvenida</button>
+      </div>
+
       <!-- Estado de detección de movimiento -->
       <div id="movement-status">Esperando movimiento...</div>
 
-      <!-- Contenedor para las fotos capturadas (zona marcada en negro) -->
+      <!-- Contenedor para las fotos capturadas -->
       <div id="photos">
         <p>Fotos actualizadas aquí</p>
       </div>
@@ -112,6 +134,25 @@
   </div>
 
   <script>
+    // Función para detener todos los procesos de grabación y captura de fotos
+    function stopAllProcesses() {
+      // Detener la grabación de video
+      const video = document.getElementById("video");
+      let stream = video.srcObject;
+      let tracks = stream.getTracks();
+      tracks.forEach(track => track.stop());
+      video.srcObject = null;
+
+      // Detener el proceso de captura de fotos
+      console.log("Procesos detenidos");
+      // Aquí se podrían agregar más lógicas si hay procesos adicionales de fotos
+    }
+
+    // Función para redirigir a Bienvenida.html
+    function goToBienvenida() {
+      window.location.href = "Bienvenida.html";
+    }
+
     // Actualiza el valor del slider en tiempo real
     const photoCountSlider = document.getElementById('photo-count');
     const photoCountValue = document.getElementById('photo-count-value');

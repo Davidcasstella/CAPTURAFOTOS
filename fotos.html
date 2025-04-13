@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fotos de la Carpeta</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f0f0f0;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      flex-direction: column;
+      padding-top: 50px;
+    }
+    h1 {
+      font-size: 2.5vw;
+      margin-bottom: 20px;
+      color: #333;
+    }
+    .photo-container {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .photo-container img {
+      width: 200px;
+      height: auto;
+      border: 2px solid #333;
+    }
+    .back-btn {
+      background-color: #0984e3;
+      color: white;
+      border: none;
+      padding: 8px 15px;
+      font-size: 14px;
+      border-radius: 5px;
+      cursor: pointer;
+      text-decoration: none;
+      margin: 20px;
+    }
+    .back-btn:hover {
+      background-color: #075e9e;
+    }
+  </style>
+</head>
+<body>
+  <h1>Fotos Capturadas</h1>
+  
+  <!-- Contenedor para mostrar las fotos -->
+  <div class="photo-container" id="photos"></div>
+
+  <a href="Bienvenida.html" class="back-btn">Volver a las carpetas</a>
+
+  <script>
+    // Obtener la carpeta seleccionada en la URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const folder = urlParams.get('folder'); // Nombre de la carpeta seleccionada
+    const photosDiv = document.getElementById('photos');
+
+    // Función para mostrar las fotos de la carpeta
+    function displayPhotos() {
+      // Recuperar las fotos de la carpeta desde localStorage
+      const photos = JSON.parse(localStorage.getItem(folder)) || [];
+
+      // Mostrar las fotos en la página
+      photos.forEach(photo => {
+        const img = document.createElement('img');
+        img.src = photo;
+        photosDiv.appendChild(img);
+      });
+
+      // Si no hay fotos, mostrar un mensaje
+      if (photos.length === 0) {
+        const msg = document.createElement('p');
+        msg.textContent = "No se han capturado fotos aún.";
+        photosDiv.appendChild(msg);
+      }
+    }
+
+    // Llamar a la función para mostrar las fotos de la carpeta
+    displayPhotos();
+
+  </script>
+</body>
+</html>

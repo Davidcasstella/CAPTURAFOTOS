@@ -92,7 +92,7 @@ function startRecording() {
   logDebug("Grabación de video iniciada...");
 
   // Iniciar la detección de movimiento cada 1000 ms
-  setInterval(detectPerson, 1000); // Verificar la detección cada segundo
+  setInterval(detectPerson, 500); // Verificar la detección cada segundo
 }
 
 /**
@@ -135,7 +135,7 @@ async function capturePhotos() {
       clearInterval(photoInterval);  // Detener el ciclo si no se está capturando fotos
       logDebug("Detenido ciclo de fotos.");
     }
-  }, 1000); // Captura una foto cada 1 segundo
+  }, 500); // Captura una foto cada 1 segundo
 }
 
 /**
@@ -197,7 +197,7 @@ async function init() {
     logDebug("Metadata del video cargada. Dimensiones: " + video.videoWidth + "x" + video.videoHeight);
   });
   video.addEventListener('play', () => {
-    setInterval(detectPerson, 1000); // Verificar la detección cada 1 segundo
+    setInterval(detectPerson, 500); // Verificar la detección cada 1 segundo
   });
 }
 
