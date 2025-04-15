@@ -10,12 +10,40 @@ let recordingTimeout;
 let isVideoInProgress = false; // Variable para controlar si ya hay una grabación en curso
 let isCapturingPhotos = false; // Variable para controlar si se están tomando fotos
 let photosCaptured = 0; // Contador de fotos capturadas
+let detectionInterval;  // Variable para almacenar el intervalo de detección
 
 // Función para imprimir logs en la consola y en la sección de la página
 function logDebug(message) {
   console.log(message); // Log en consola para depuración
   if (debugConsole) {
     debugConsole.textContent += message + "\n";
+  }
+}
+
+/**
+ * Función para aplicar el zoom real de la cámara.
+ * @param {number} level - Nivel de zoom (1 es normal, máximo sería 3x).
+ */
+async function applyCameraZoom(level) {
+  const stream = video.srcObject;
+  const track = stream.getTracks()[0]; // Obtener la pista de video del stream
+
+  // Verificar si la pista tiene la capacidad de aplicar zoom
+  if (track.getCapabilities().zoom) {
+    const capabilities = track.getCapabilities();
+    const zoom = capabilities.zoom;
+
+    // Asegurarse de que el nivel de zoom esté dentro del rango permitido
+    const newZoom = Math.min(Math.max(zoom.min, level), zoom.max);
+
+    // Aplicar el nuevo zoom
+    await track.applyConstraints({
+      advanced: [{ zoom: newZoom }]
+    });
+
+    logDebug(`Zoom aplicado a: ${newZoom}`);
+  } else {
+    logDebug("La cámara no soporta el ajuste de zoom.");
   }
 }
 
@@ -34,15 +62,19 @@ async function startVideo() {
 
   try {
     const constraints = {
-      video: { facingMode: 'environment' } // Cámara trasera
+      video: { facingMode: 'environment' }, // Cámara trasera
+      audio: true  // Solicitar también acceso al micrófono
     };
 
-    // Intentar acceder a la cámara
+    // Intentar acceder a la cámara y al micrófono
     const stream = await navigator.mediaDevices.getUserMedia(constraints);
 
     // Conectar el stream de la cámara al elemento video
     video.srcObject = stream;
     logDebug("Stream obtenido con éxito.");
+
+    // Aplicar zoom de 3x al video real (cámara)
+    await applyCameraZoom(3);
 
     // Configurar el grabador de video
     mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
@@ -92,7 +124,7 @@ function startRecording() {
   logDebug("Grabación de video iniciada...");
 
   // Iniciar la detección de movimiento cada 1000 ms
-  setInterval(detectPerson, 500); // Verificar la detección cada segundo
+  detectionInterval = setInterval(detectPerson, 1000); // Verificar la detección cada segundo
 }
 
 /**
@@ -127,15 +159,15 @@ async function capturePhotos() {
 
   // Bucle para capturar fotos de forma continua, pero con más tiempo entre cada captura
   const photoInterval = setInterval(() => {
-    if (isCapturingPhotos) {
+    if (isCapturingPhotos && photosCaptured < photoCount) {
       capturePhoto();  // Capturar foto
       photosCaptured++;
       logDebug("Foto capturada...");
     } else {
-      clearInterval(photoInterval);  // Detener el ciclo si no se está capturando fotos
+      clearInterval(photoInterval);  // Detener el ciclo si no se está capturando fotos o si ya se alcanzó el número de fotos
       logDebug("Detenido ciclo de fotos.");
     }
-  }, 500); // Captura una foto cada 1 segundo
+  }, 1000); // Captura una foto cada 1 segundo
 }
 
 /**
@@ -151,6 +183,8 @@ function stopCapturingPhotos() {
  */
 async function capturePhoto() {
   logDebug("Intentando capturar foto...");
+  
+  // Crear un canvas para dibujar el contenido del video
   const canvas = document.createElement('canvas');
   const width = video.videoWidth || 640;
   const height = video.videoHeight || 480;
@@ -180,11 +214,37 @@ async function capturePhoto() {
   photosDiv.appendChild(img);
   logDebug("Foto mostrada en la página.");
 
-  // Opcional: descargar la foto automáticamente
+  // Crear un enlace para descargar la foto
   const link = document.createElement('a');
   link.href = dataURL;
   link.download = 'captura_' + Date.now() + '.png';  // Nombre del archivo
   link.click();  // Iniciar la descarga automáticamente
+}
+
+/**
+ * Función para detener todos los procesos: grabación, detección, fotos, etc.
+ */
+function stopAllProcesses() {
+  // Detener la grabación
+  if (isRecording) {
+    mediaRecorder.stop();
+    isRecording = false;
+    logDebug("Grabación detenida.");
+  }
+
+  // Detener la detección de personas
+  if (detectionInterval) {
+    clearInterval(detectionInterval);
+    detectionInterval = null;
+    logDebug("Detección de personas detenida.");
+  }
+
+  // Detener la captura de fotos
+  stopCapturingPhotos();
+
+  // Detener el zoom
+  applyZoomToVideo(1);  // Restaurar el zoom a 1x
+  logDebug("Todos los procesos detenidos.");
 }
 
 /**
@@ -193,11 +253,14 @@ async function capturePhoto() {
 async function init() {
   await loadModels();
   
+  // Aplicar el zoom inicial a 3x cuando se inicia la cámara
+  await applyCameraZoom(3);
+
   video.addEventListener('loadedmetadata', () => {
     logDebug("Metadata del video cargada. Dimensiones: " + video.videoWidth + "x" + video.videoHeight);
   });
   video.addEventListener('play', () => {
-    setInterval(detectPerson, 500); // Verificar la detección cada 1 segundo
+    setInterval(detectPerson, 1000); // Verificar la detección cada 1 segundo
   });
 }
 
