@@ -551,8 +551,8 @@
         let renderInterval;
         let motionDetectionInterval;
         let cocoModel;
-        let currentZoom = 1;
-        let targetZoom = 1;
+        let currentZoom = 5;
+        let targetZoom = 5;
         let zoomTransitionSpeed = 0.1;
         let personDetectedTime = 0;
         let lastDetectionTime = 0;
@@ -1195,6 +1195,7 @@
             try {
                 // Inicializar zoom manager
                 zoomManager = new ZoomManager(video, canvas, ctx);
+                zoomManager.setTargetZoom(5); // Establecer zoom inicial en 5x
                 
                 // Inicializar detector de movimiento
                 motionDetector = new MotionDetector(video, canvas);
@@ -1250,7 +1251,7 @@
             logDebug("Todos los procesos iniciados correctamente");
         }
 
-        // Función de detección de personas mejorada
+        // Función de detección de personas mejoradapersonDetected
         async function performPersonDetection() {
             if (!personDetector || !personDetector.isLoaded) return;
 
@@ -1266,9 +1267,7 @@
                         lastDetectionTime = currentTime;
                         detectionMade = true;
                         
-                        // Hacer zoom
-                        const zoomLevel = parseInt(zoomLevelSlider.value);
-                        zoomManager.setTargetZoom(zoomLevel);
+                        zoomManager.setTargetZoom(1); // Alejar a zoom 1x
                         
                         updateStatus('¡Persona detectada! Aplicando zoom...', 'detected');
                         updatePersonCount(1);
@@ -1278,18 +1277,18 @@
                             await photoCapture.startCapturing('Persona detectada');
                         }
                         
-                        // Resetear zoom después del tiempo especificado
+                        // NUEVA LÓGICA: Volver al zoom 5x después de 10 segundos
                         clearTimeout(zoomResetTimeout);
                         zoomResetTimeout = setTimeout(() => {
-                            zoomManager.setTargetZoom(1);
-                            updateStatus('Zoom reseteado - Continuando monitoreo...', 'active');
-                        }, ZOOM_DURATION);
+                            zoomManager.setTargetZoom(5); // Volver a zoom 5x
+                            updateStatus('Zoom reseteado a 5x - Continuando monitoreo...', 'active');
+                        }, 10000); // 10 segundos
                     } else {
                         updatePersonCount(0);
                         
-                        // Si no hay persona hace tiempo, resetear zoom
-                        if (currentTime - lastDetectionTime > ZOOM_DURATION) {
-                            zoomManager.setTargetZoom(1);
+                         // Si no hay persona hace tiempo, asegurar que esté en zoom 5x
+                        if (currentTime - lastDetectionTime > 10000) { // Cambiar de ZOOM_DURATION a 10000
+                            zoomManager.setTargetZoom(5); // Mantener en zoom 5x
                         }
                     }
                 }
@@ -1330,13 +1329,21 @@
                         motionDetected = true;
                         lastMotionTime = currentTime;
                         
-                        logDebug(`Movimiento detectado: ${motion.level}% (${motion.area} píxeles)`);
-                        updateStatus('¡Movimiento detectado! Analizando...', 'motion');
+                        zoomManager.setTargetZoom(1);
+                        
+                            logDebug(`Movimiento detectado: ${motion.level}% (${motion.area} píxeles)`);
+                            updateStatus('¡Movimiento detectado! Alejando zoom...', 'motion');
                         
                         // Capturar fotos por movimiento si está habilitado
                         if (autoCaptureCheckbox.checked && !photoCapture.isCapturing) {
                             photoCapture.startCapturing('Movimiento detectado');
                         }
+                        // NUEVA LÓGICA: Volver al zoom 5x después de 10 segundos
+                        clearTimeout(zoomResetTimeout);
+                        zoomResetTimeout = setTimeout(() => {
+                            zoomManager.setTargetZoom(5);
+                            updateStatus('Zoom reseteado a 5x - Continuando monitoreo...', 'active');
+                        }, 10000);
                     }
                 } else {
                     motionDetected = false;
@@ -1375,8 +1382,8 @@
             updateStatus(`Probando zoom ${zoomLevel}x...`, 'active');
             
             setTimeout(() => {
-                zoomManager.setTargetZoom(1);
-                updateStatus('Prueba de zoom completada', 'active');
+                zoomManager.setTargetZoom(5);
+                updateStatus('Prueba de zoom completada - Zoom en 5x', 'active');
             }, 3000);
         }
 
@@ -1436,7 +1443,7 @@
             
             // Resetear zoom
             if (zoomManager) {
-                zoomManager.setTargetZoom(1);
+                zoomManager.setTargetZoom(5);
             }
             
             // Limpiar canvas
