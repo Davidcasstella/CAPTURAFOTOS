@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Detector de Personas con Cámara - Mejorado</title>
+    <title>Detector de Personas con Cámara - Grabación Automática</title>
     <style>
         * {
             margin: 0;
@@ -306,6 +306,20 @@
             animation: pulse 1s infinite;
         }
 
+        .countdown-display {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(220, 53, 69, 0.9);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 10px;
+            font-size: 24px;
+            font-weight: bold;
+            display: none;
+            z-index: 100;
+        }
+
         .debug-section {
             grid-column: 1 / -1;
             margin-top: 20px;
@@ -376,14 +390,14 @@
 </head>
 <body>
     <div class="container">
-        <h1>🎥 Detector Mejorado de Personas y Movimiento</h1>
+        <h1>🎥 Detector Automático con Grabación MP4</h1>
         
         <div class="main-content">
             <div class="video-section">
                 <video id="video" autoplay muted playsinline></video>
                 <canvas id="canvas-display"></canvas>
+                <div class="countdown-display" id="countdown-display"></div>
                 
-                <!-- NUEVA UBICACIÓN DE LA SECCIÓN DE FOTOS -->
                 <div class="photos-inline-section">
                     <h3>📷 Fotos Capturadas</h3>
                     <div id="photos"></div>
@@ -393,12 +407,12 @@
             <div class="controls">
                 <div class="status-display">
                     <div id="movement-status" class="status-waiting">
-                        Presiona 'Iniciar Cámara' para comenzar
+                        Iniciando sistema automático...
                     </div>
                     <div class="status-info">
                         <div class="status-item">
                             <strong>Zoom Actual</strong>
-                            <div id="zoom-info">Zoom: 1.0x</div>
+                            <div id="zoom-info">Zoom: 5.0x</div>
                         </div>
                         <div class="status-item">
                             <strong>Estado del Modelo</strong>
@@ -413,7 +427,7 @@
                             <strong>Movimiento:</strong> <span id="motion-level">0%</span>
                         </div>
                         <div class="stat-item">
-                            <strong>Fotos:</strong> <span id="photo-count-display">0</span>
+                            <strong>Videos:</strong> <span id="video-count-display">0</span>
                         </div>
                     </div>
                 </div>
@@ -422,10 +436,9 @@
                     <div id="server-status">Verificando...</div>
                 </div>
                 
-                <!-- NUEVO: Estado de grabación de video -->
                 <div class="status-item">
                     <strong>Grabación</strong>
-                    <div id="recording-status">Inactivo</div>
+                    <div id="recording-status">Esperando detección...</div>
                 </div>
 
                 <div class="control-group">
@@ -433,14 +446,6 @@
                     <div class="slider-container">
                         <input type="range" id="photo-count" min="1" max="10" value="3">
                         <span id="photo-count-value" class="slider-value">3</span>
-                    </div>
-                </div>
-
-                <div class="control-group">
-                    <label for="zoom-level">Nivel de zoom de búsqueda:</label>
-                    <div class="slider-container">
-                        <input type="range" id="zoom-level" min="2" max="8" value="5">
-                        <span id="zoom-level-value" class="slider-value">5x</span>
                     </div>
                 </div>
 
@@ -471,25 +476,22 @@
                         <label for="detect-motion">Detectar movimiento</label>
                     </div>
                     <div class="checkbox-container">
-                        <input type="checkbox" id="detect-body-parts">
+                        <input type="checkbox" id="detect-body-parts" checked>
                         <label for="detect-body-parts">Detectar partes del cuerpo</label>
                     </div>
                     <div class="checkbox-container">
                         <input type="checkbox" id="auto-capture" checked>
-                        <label for="auto-capture">Captura automática</label>
+                        <label for="auto-capture">Captura automática de fotos</label>
                     </div>
-                    <!-- NUEVO: Checkbox para descarga automática -->
                     <div class="checkbox-container">
-                        <input type="checkbox" id="auto-download" checked>
-                        <label for="auto-download">Descarga automática</label>
+                        <input type="checkbox" id="auto-record" checked>
+                        <label for="auto-record">Grabación automática de video</label>
                     </div>
                 </div>
 
-                <button onclick="startVideo()" class="btn-primary">🎬 Iniciar Cámara</button>
-                <button onclick="testZoom()" class="btn-secondary">🔍 Probar Zoom</button>
-                <button onclick="capturePhoto()" class="btn-secondary">📸 Capturar Foto</button>
-                <!-- NUEVO: Botón para grabar video -->
-                <button onclick="toggleVideoRecording()" class="btn-secondary" id="record-btn">🎥 Grabar Video (10s)</button>
+                <button onclick="pauseDetection()" class="btn-secondary">⏸️ Pausar Detección</button>
+                <button onclick="resumeDetection()" class="btn-primary">▶️ Reanudar Detección</button>
+                <button onclick="capturePhoto()" class="btn-secondary">📸 Capturar Foto Manual</button>
                 <button onclick="clearPhotos()" class="btn-secondary">🗑️ Limpiar Fotos</button>
                 <button onclick="stopAllProcesses()" class="btn-danger">⏹️ Detener Todo</button>
             </div>
@@ -506,1007 +508,1442 @@
         <div>Cargando modelo de detección...</div>
     </div>
 
-    <!-- Scripts necesarios para TensorFlow.js y COCO-SSD -->
+    <!-- Scripts necesarios -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tensorflow/4.2.0/tf.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/tensorflow/4.2.0/tf-core.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/tensorflow/4.2.0/tf-converter.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/tensorflow/4.2.0/tf-backend-webgl.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.2/dist/coco-ssd.min.js"></script>
 
     <script>
-        // Referencias a elementos del DOM
-        const video = document.getElementById('video');
-        const canvas = document.getElementById('canvas-display');
-        const ctx = canvas.getContext('2d');
-        const photosDiv = document.getElementById('photos');
-        const debugConsole = document.getElementById('debug-console');
-        const movementStatus = document.getElementById('movement-status');
-        const zoomInfo = document.getElementById('zoom-info');
-        const modelStatus = document.getElementById('model-status');
-        const photoCountSlider = document.getElementById('photo-count');
-        const photoCountValue = document.getElementById('photo-count-value');
-        const zoomLevelSlider = document.getElementById('zoom-level');
-        const zoomLevelValue = document.getElementById('zoom-level-value');
-        const motionSensitivitySlider = document.getElementById('motion-sensitivity');
-        const motionSensitivityValue = document.getElementById('motion-sensitivity-value');
-        const detectionConfidenceSlider = document.getElementById('detection-confidence');
-        const detectionConfidenceValue = document.getElementById('detection-confidence-value');
-        const loadingOverlay = document.getElementById('loading-overlay');
+       // Referencias a elementos del DOM
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas-display');
+const ctx = canvas.getContext('2d');
+const photosDiv = document.getElementById('photos');
+const debugConsole = document.getElementById('debug-console');
+const movementStatus = document.getElementById('movement-status');
+const zoomInfo = document.getElementById('zoom-info');
+const modelStatus = document.getElementById('model-status');
+const photoCountSlider = document.getElementById('photo-count');
+const photoCountValue = document.getElementById('photo-count-value');
+const motionSensitivitySlider = document.getElementById('motion-sensitivity');
+const motionSensitivityValue = document.getElementById('motion-sensitivity-value');
+const detectionConfidenceSlider = document.getElementById('detection-confidence');
+const detectionConfidenceValue = document.getElementById('detection-confidence-value');
+const loadingOverlay = document.getElementById('loading-overlay');
+const countdownDisplay = document.getElementById('countdown-display');
+
+// Elementos de estadísticas
+const personCountDisplay = document.getElementById('person-count');
+const motionLevelDisplay = document.getElementById('motion-level');
+const videoCountDisplay = document.getElementById('video-count-display');
+
+// Checkboxes
+const detectPersonsCheckbox = document.getElementById('detect-persons');
+const detectMotionCheckbox = document.getElementById('detect-motion');
+const detectBodyPartsCheckbox = document.getElementById('detect-body-parts');
+const autoCaptureCheckbox = document.getElementById('auto-capture');
+const autoRecordCheckbox = document.getElementById('auto-record');
+
+// Variables de control
+let isRecording = false;
+let isCapturingPhotos = false;
+let detectionInterval;
+let renderInterval;
+let motionDetectionInterval;
+let cocoModel;
+let currentZoom = 5;
+let targetZoom = 5;
+let zoomTransitionSpeed = 0.1;
+let personDetectedTime = 0;
+let lastDetectionTime = 0;
+let zoomResetTimeout;
+let totalVideosCaptured = 0;
+let isPaused = false;
+
+// Variables para detección de movimiento
+let previousFrameData = null;
+let motionThreshold = 30;
+let motionDetected = false;
+let lastMotionTime = 0;
+
+// Variables para grabación de video
+let mediaRecorder;
+let recordedChunks = [];
+let isVideoRecording = false;
+let recordingTimeout;
+let recordingStartTime;
+let countdownInterval;
+let audioStream = null;
+// 1. AGREGAR NUEVAS VARIABLES AL INICIO (después de las variables existentes)
+let initialZoom = 3; // Zoom inicial configurable
+let videoDuration = 10000; // Duración de video configurable
+
+// Configuración
+const ZOOM_HOLD_DURATION = 10000; // 10 segundos en zoom x1
+const VIDEO_DURATION = 10000; // 10 segundos de grabación
+const DETECTION_INTERVAL = 1000; // Verificar detección cada segundo
+const MOTION_DETECTION_INTERVAL = 200; // Verificar movimiento cada 200ms
+const RENDER_FPS = 30; // FPS para renderizado del canvas
+const MOTION_COOLDOWN = 3000; // 3 segundos de cooldown entre detecciones
+
+// Instancias de las clases
+let zoomManager;
+let motionDetector;
+let personDetector;
+let photoCapture;
+
+// Event listeners para sliders
+photoCountSlider.addEventListener('input', () => {
+    photoCountValue.textContent = photoCountSlider.value;
+});
+
+motionSensitivitySlider.addEventListener('input', () => {
+    motionSensitivityValue.textContent = motionSensitivitySlider.value;
+    motionThreshold = 50 - (motionSensitivitySlider.value * 4);
+});
+
+detectionConfidenceSlider.addEventListener('input', () => {
+    detectionConfidenceValue.textContent = detectionConfidenceSlider.value + '%';
+});
+
+// Clase para detección de movimiento
+class MotionDetector {
+    constructor(videoElement, canvasElement) {
+        this.video = videoElement;
+        this.canvas = canvasElement;
+        this.ctx = this.canvas.getContext('2d');
+        this.previousFrame = null;
+        this.motionCanvas = document.createElement('canvas');
+        this.motionCtx = this.motionCanvas.getContext('2d');
+        this.motionThreshold = 30;
+        this.minMotionArea = 100;
+    }
+
+    detectMotion() {
+        if (!this.video.videoWidth || !this.video.videoHeight) {
+            return { detected: false, level: 0 };
+        }
+
+        this.motionCanvas.width = Math.floor(this.video.videoWidth / 4);
+        this.motionCanvas.height = Math.floor(this.video.videoHeight / 4);
+
+        this.motionCtx.drawImage(this.video, 0, 0, this.motionCanvas.width, this.motionCanvas.height);
+        const currentFrame = this.motionCtx.getImageData(0, 0, this.motionCanvas.width, this.motionCanvas.height);
         
-        // Elementos de estadísticas
-        const personCountDisplay = document.getElementById('person-count');
-        const motionLevelDisplay = document.getElementById('motion-level');
-        const photoCountDisplay = document.getElementById('photo-count-display');
-
-        // Checkboxes
-        const detectPersonsCheckbox = document.getElementById('detect-persons');
-        const detectMotionCheckbox = document.getElementById('detect-motion');
-        const detectBodyPartsCheckbox = document.getElementById('detect-body-parts');
-        const autoCaptureCheckbox = document.getElementById('auto-capture');
-
-        // Variables de control
-        let isRecording = false;
-        let isCapturingPhotos = false;
-        let detectionInterval;
-        let renderInterval;
-        let motionDetectionInterval;
-        let cocoModel;
-        let currentZoom = 5;
-        let targetZoom = 5;
-        let zoomTransitionSpeed = 0.1;
-        let personDetectedTime = 0;
-        let lastDetectionTime = 0;
-        let zoomResetTimeout;
-        let totalPhotosCaptured = 0;
-
-        // Variables para detección de movimiento
-        let previousFrameData = null;
-        let motionThreshold = 30;
-        let motionDetected = false;
-        let lastMotionTime = 0;
-
-        // Variables para grabación de video
-        let mediaRecorder;
-        let recordedChunks = [];
-        let isVideoRecording = false;
-        let recordingTimeout;
-
-        // Configuración
-        const ZOOM_DURATION = 10000; // 10 segundos en zoom normal después de detectar persona
-        const DETECTION_INTERVAL = 1000; // Verificar detección cada segundo
-        const MOTION_DETECTION_INTERVAL = 200; // Verificar movimiento cada 200ms
-        const RENDER_FPS = 30; // FPS para renderizado del canvas
-        const MOTION_COOLDOWN = 3000; // 3 segundos de cooldown entre detecciones de movimiento
-
-        // Event listeners para sliders
-        photoCountSlider.addEventListener('input', () => {
-            photoCountValue.textContent = photoCountSlider.value;
-        });
-
-        zoomLevelSlider.addEventListener('input', () => {
-            zoomLevelValue.textContent = zoomLevelSlider.value + 'x';
-        });
-
-        motionSensitivitySlider.addEventListener('input', () => {
-            motionSensitivityValue.textContent = motionSensitivitySlider.value;
-            motionThreshold = 50 - (motionSensitivitySlider.value * 4); // Más sensible = umbral menor
-        });
-
-        detectionConfidenceSlider.addEventListener('input', () => {
-            detectionConfidenceValue.textContent = detectionConfidenceSlider.value + '%';
-        });
-
-        // Clase mejorada para detección de movimiento
-        class MotionDetector {
-            constructor(videoElement, canvasElement) {
-                this.video = videoElement;
-                this.canvas = canvasElement;
-                this.ctx = this.canvas.getContext('2d');
-                this.previousFrame = null;
-                this.motionCanvas = document.createElement('canvas');
-                this.motionCtx = this.motionCanvas.getContext('2d');
-                this.motionThreshold = 30;
-                this.minMotionArea = 100; // Área mínima para considerar movimiento válido
-            }
-
-            detectMotion() {
-                if (!this.video.videoWidth || !this.video.videoHeight) {
-                    return { detected: false, level: 0 };
-                }
-
-                // Configurar canvas de movimiento
-                this.motionCanvas.width = Math.floor(this.video.videoWidth / 4); // Reducir resolución para performance
-                this.motionCanvas.height = Math.floor(this.video.videoHeight / 4);
-
-                // Capturar frame actual
-                this.motionCtx.drawImage(this.video, 0, 0, this.motionCanvas.width, this.motionCanvas.height);
-                const currentFrame = this.motionCtx.getImageData(0, 0, this.motionCanvas.width, this.motionCanvas.height);
-                
-                if (!this.previousFrame) {
-                    this.previousFrame = currentFrame;
-                    return { detected: false, level: 0 };
-                }
-
-                // Calcular diferencias entre frames
-                const diff = this.calculateFrameDifference(this.previousFrame, currentFrame);
-                this.previousFrame = currentFrame;
-
-                const motionLevel = Math.min(100, Math.floor((diff.totalDiff / diff.totalPixels) * 100));
-                const detected = motionLevel > this.motionThreshold;
-
-                return {
-                    detected: detected,
-                    level: motionLevel,
-                    area: diff.motionArea
-                };
-            }
-
-            calculateFrameDifference(frame1, frame2) {
-                const data1 = frame1.data;
-                const data2 = frame2.data;
-                let totalDiff = 0;
-                let motionPixels = 0;
-                let totalPixels = data1.length / 4;
-
-                for (let i = 0; i < data1.length; i += 4) {
-                    // Calcular diferencia en escala de grises
-                    const gray1 = (data1[i] + data1[i + 1] + data1[i + 2]) / 3;
-                    const gray2 = (data2[i] + data2[i + 1] + data2[i + 2]) / 3;
-                    const diff = Math.abs(gray1 - gray2);
-                    
-                    totalDiff += diff;
-                    if (diff > this.motionThreshold) {
-                        motionPixels++;
-                    }
-                }
-
-                return {
-                    totalDiff: totalDiff,
-                    totalPixels: totalPixels,
-                    motionArea: motionPixels
-                };
-            }
-
-            setThreshold(threshold) {
-                this.motionThreshold = threshold;
-            }
+        if (!this.previousFrame) {
+            this.previousFrame = currentFrame;
+            return { detected: false, level: 0 };
         }
 
-        // Clase para manejar el zoom por capas (mejorada)
-        class ZoomManager {
-            constructor(videoElement, canvasElement, contextElement) {
-                this.video = videoElement;
-                this.canvas = canvasElement;
-                this.ctx = contextElement;
-                this.currentZoom = 1;
-                this.targetZoom = 1;
-                this.transitionSpeed = 0.1;
-            }
+        const diff = this.calculateFrameDifference(this.previousFrame, currentFrame);
+        this.previousFrame = currentFrame;
 
-            setTargetZoom(zoom) {
-                this.targetZoom = zoom;
-                logDebug(`Zoom objetivo establecido: ${zoom}x`);
-            }
+        const motionLevel = Math.min(100, Math.floor((diff.totalDiff / diff.totalPixels) * 100));
+        const detected = motionLevel > this.motionThreshold;
 
-            updateZoom() {
-                if (Math.abs(this.currentZoom - this.targetZoom) > 0.01) {
-                    const difference = this.targetZoom - this.currentZoom;
-                    this.currentZoom += difference * this.transitionSpeed;
-                    
-                    if (Math.abs(difference) < 0.01) {
-                        this.currentZoom = this.targetZoom;
-                    }
-                    
-                    this.updateZoomInfo();
-                }
-            }
+        return {
+            detected: detected,
+            level: motionLevel,
+            area: diff.motionArea
+        };
+    }
 
-            updateZoomInfo() {
-                zoomInfo.textContent = `Zoom: ${this.currentZoom.toFixed(1)}x`;
-            }
+    calculateFrameDifference(frame1, frame2) {
+        const data1 = frame1.data;
+        const data2 = frame2.data;
+        let totalDiff = 0;
+        let motionPixels = 0;
+        let totalPixels = data1.length / 4;
 
-            renderFrame() {
-                if (!this.video.videoWidth || !this.video.videoHeight || this.video.paused || this.video.ended) {
-                    return;
-                }
-
-                // Configurar el tamaño del canvas
-                this.canvas.width = this.canvas.offsetWidth;
-                this.canvas.height = this.canvas.offsetHeight;
-
-                if (this.canvas.width === 0 || this.canvas.height === 0) {
-                    return;
-                }
-
-                // Calcular dimensiones para el zoom
-                const videoAspect = this.video.videoWidth / this.video.videoHeight;
-                const canvasAspect = this.canvas.width / this.canvas.height;
-
-                let drawWidth, drawHeight;
-                let sourceX, sourceY, sourceWidth, sourceHeight;
-
-                // Calcular área de origen en el video (para el zoom)
-                sourceWidth = this.video.videoWidth / this.currentZoom;
-                sourceHeight = this.video.videoHeight / this.currentZoom;
-                sourceX = (this.video.videoWidth - sourceWidth) / 2;
-                sourceY = (this.video.videoHeight - sourceHeight) / 2;
-
-                // Calcular tamaño de destino en el canvas manteniendo aspecto
-                if (videoAspect > canvasAspect) {
-                    drawHeight = this.canvas.height;
-                    drawWidth = drawHeight * videoAspect;
-                } else {
-                    drawWidth = this.canvas.width;
-                    drawHeight = drawWidth / videoAspect;
-                }
-
-                const drawX = (this.canvas.width - drawWidth) / 2;
-                const drawY = (this.canvas.height - drawHeight) / 2;
-
-                // Limpiar canvas con fondo negro
-                this.ctx.fillStyle = '#000000';
-                this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-
-                try {
-                    // Dibujar el video con zoom
-                    this.ctx.drawImage(
-                        this.video,
-                        sourceX, sourceY, sourceWidth, sourceHeight,
-                        drawX, drawY, drawWidth, drawHeight
-                    );
-                } catch (error) {
-                    // Silenciar errores temporales de renderizado
-                }
-            }
-
-            captureCurrentFrame() {
-                // Crear un canvas temporal para la captura
-                const captureCanvas = document.createElement('canvas');
-                const captureCtx = captureCanvas.getContext('2d');
-                
-                // Usar resolución del video original
-                captureCanvas.width = this.video.videoWidth;
-                captureCanvas.height = this.video.videoHeight;
-
-                // Capturar con el zoom actual
-                const sourceWidth = this.video.videoWidth / this.currentZoom;
-                const sourceHeight = this.video.videoHeight / this.currentZoom;
-                const sourceX = (this.video.videoWidth - sourceWidth) / 2;
-                const sourceY = (this.video.videoHeight - sourceHeight) / 2;
-
-                captureCtx.drawImage(
-                    this.video,
-                    sourceX, sourceY, sourceWidth, sourceHeight,
-                    0, 0, captureCanvas.width, captureCanvas.height
-                );
-
-                return captureCanvas.toDataURL('image/png');
-            }
-        }
-
-        // Clase mejorada para detección de personas y partes del cuerpo
-        class PersonDetector {
-            constructor() {
-                this.model = null;
-                this.isLoaded = false;
-                this.bodyParts = ['person']; // Expandir para incluir más partes del cuerpo
-            }
-
-            async loadModel() {
-                try {
-                    logDebug("Cargando modelo COCO-SSD...");
-                    loadingOverlay.style.display = 'flex';
-                    modelStatus.textContent = 'Cargando...';
-                    
-                    // Verificar que cocoSsd esté disponible
-                    if (typeof cocoSsd === 'undefined') {
-                        throw new Error('COCO-SSD no está disponible. Verifica la conexión a internet.');
-                    }
-                    
-                    this.model = await cocoSsd.load();
-                    this.isLoaded = true;
-                    modelStatus.textContent = 'Cargado ✅';
-                    loadingOverlay.style.display = 'none';
-                    logDebug("Modelo COCO-SSD cargado exitosamente");
-                } catch (error) {
-                    logDebug(`Error cargando modelo: ${error.message}`);
-                    modelStatus.textContent = 'Error ❌';
-                    loadingOverlay.style.display = 'none';
-                    this.isLoaded = false;
-                }
-            }
-
-            async detectPersonsAndObjects() {
-                if (!this.isLoaded || !this.model) return { persons: [], objects: [] };
-
-                try {
-                    const predictions = await this.model.detect(video);
-                    const confidence = detectionConfidenceSlider.value / 100;
-                    
-                    const validPredictions = predictions.filter(p => p.score > confidence);
-                    const persons = validPredictions.filter(p => p.class === 'person');
-                    const objects = validPredictions.filter(p => p.class !== 'person');
-                    
-                    return {
-                        persons: persons,
-                        objects: objects,
-                        all: validPredictions
-                    };
-                } catch (error) {
-                    logDebug(`Error en detección: ${error.message}`);
-                    return { persons: [], objects: [] };
-                }
-            }
-
-            async detectPerson() {
-                const detection = await this.detectPersonsAndObjects();
-                return detection.persons.length > 0;
-            }
-
-            async detectBodyParts() {
-                // Esta función podría expandirse para usar modelos más específicos
-                // Por ahora, detectamos cualquier objeto que pueda ser parte del cuerpo
-                const detection = await this.detectPersonsAndObjects();
-                const bodyRelatedObjects = detection.objects.filter(obj => 
-                    ['bottle', 'cup', 'cell phone', 'handbag', 'backpack'].includes(obj.class)
-                );
-                
-                return {
-                    detected: bodyRelatedObjects.length > 0,
-                    objects: bodyRelatedObjects,
-                    persons: detection.persons
-                };
-            }
-        }
-
-        // Clase mejorada para captura de fotos con guardado en servidor
-        class PhotoCapture {
-            constructor() {
-                this.isCapturing = false;
-                this.photoCount = 0;
-                this.maxPhotos = 3;
-                this.captureReason = '';
-                this.serverUrl = 'http://localhost:5000'; // URL del servidor Flask
-            }
-
-            async startCapturing(reason = 'Detección automática') {
-                if (this.isCapturing) return;
-                
-                this.isCapturing = true;
-                this.captureReason = reason;
-                this.maxPhotos = parseInt(photoCountSlider.value);
-                
-                logDebug(`Iniciando captura de ${this.maxPhotos} fotos por: ${reason}`);
-                
-                for (let i = 0; i < this.maxPhotos; i++) {
-                    await this.capturePhoto();
-                    if (i < this.maxPhotos - 1) {
-                        await this.delay(500); // Esperar 500ms entre fotos
-                    }
-                }
-                
-                this.isCapturing = false;
-                logDebug(`Captura completada: ${this.maxPhotos} fotos`);
-            }
-
-            async capturePhoto() {
-                if (!zoomManager) return;
-
-                try {
-                    const photoData = zoomManager.captureCurrentFrame();
-                    const timestamp = new Date().toLocaleString();
-                    
-                    // Crear elemento de imagen para mostrar en el frontend
-                    const img = document.createElement('img');
-                    img.src = photoData;
-                    img.className = 'captured-photo';
-                    img.title = `${this.captureReason} - ${timestamp}`;
-                    img.alt = `Foto capturada el ${timestamp}`;
-                    
-                    // Hacer la imagen clickeable para verla en tamaño completo
-                    img.onclick = () => {
-                        window.open(photoData, '_blank');
-                    };
-                    
-                    // Agregar al contenedor de fotos
-                    photosDiv.appendChild(img);
-                    
-                    // Descarga automática si está habilitada
-                    const autoDownloadCheckbox = document.getElementById('auto-download');
-                    if (autoDownloadCheckbox && autoDownloadCheckbox.checked) {
-                        this.downloadPhoto(photoData, this.captureReason, timestamp);
-                    }
-                    
-                    // Intentar guardar en el servidor
-                    const saveResult = await this.saveToServer(photoData, this.captureReason, timestamp);
-                    
-                    if (saveResult.success) {
-                        logDebug(`Foto guardada en servidor: ${saveResult.filename}`);
-                        // Agregar indicador visual de que se guardó
-                        img.style.border = '2px solid #28a745';
-                        img.title += ' ✅ Guardada en servidor';
-                    } else {
-                        logDebug(`Error guardando en servidor: ${saveResult.error}`);
-                        // Agregar indicador visual de error
-                        img.style.border = '2px solid #dc3545';
-                        img.title += ' ❌ No se pudo guardar';
-                    }
-                    
-                    this.photoCount++;
-                    totalPhotosCaptured++;
-                    photoCountDisplay.textContent = totalPhotosCaptured;
-                    
-                    // Auto-scroll para mostrar la última foto
-                    photosDiv.scrollLeft = photosDiv.scrollWidth;
-                    
-                    logDebug(`Foto capturada: ${this.captureReason} - ${timestamp}`);
-                    
-                } catch (error) {
-                    logDebug(`Error capturando foto: ${error.message}`);
-                }
-            }
-
-            downloadPhoto(dataUrl, reason, timestamp) {
-                const link = document.createElement('a');
-                const fileName = `${reason.replace(/\s+/g, '_')}_${timestamp.replace(/[/:]/g, '-')}.png`;
-                link.download = fileName;
-                link.href = dataUrl;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                logDebug(`Foto descargada: ${fileName}`);
-            }
-
-            async saveToServer(imageData, reason, timestamp) {
-                try {
-                    const response = await fetch(`${this.serverUrl}/save-photo`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            image: imageData,
-                            reason: reason,
-                            timestamp: timestamp
-                        })
-                    });
-                    
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
-                    
-                    const result = await response.json();
-                    return result;
-                    
-                } catch (error) {
-                    logDebug(`Error conectando con servidor: ${error.message}`);
-                    return { success: false, error: error.message };
-                }
-            }
-
-            async checkServerHealth() {
-                try {
-                    const response = await fetch(`${this.serverUrl}/health`);
-                    const result = await response.json();
-                    
-                    if (result.status === 'healthy') {
-                        logDebug(`Servidor conectado ✅ - ${result.photos_count} fotos guardadas`);
-                        return true;
-                    }
-                    
-                } catch (error) {
-                    logDebug(`Servidor no disponible: ${error.message}`);
-                    return false;
-                }
-            }
-
-            async loadSavedPhotos() {
-                try {
-                    const response = await fetch(`${this.serverUrl}/get-photos`);
-                    const result = await response.json();
-                    
-                    if (result.success) {
-                        logDebug(`Cargadas ${result.total} fotos del servidor`);
-                        // Aquí podrías mostrar las fotos guardadas si quieres
-                        return result.photos;
-                    }
-                    
-                } catch (error) {
-                    logDebug(`Error cargando fotos del servidor: ${error.message}`);
-                    return [];
-                }
-            }
-
-            delay(ms) {
-                return new Promise(resolve => setTimeout(resolve, ms));
-            }
-
-            clearAllPhotos() {
-                photosDiv.innerHTML = '';
-                this.photoCount = 0;
-                totalPhotosCaptured = 0;
-                photoCountDisplay.textContent = '0';
-                logDebug('Fotos del frontend eliminadas (las del servidor permanecen)');
-            }
-        }
-
-        // Función para verificar conexión con servidor al inicializar
-        async function initializePhotoService() {
-            if (photoCapture) {
-                const serverHealthy = await photoCapture.checkServerHealth();
-                const serverStatus = document.getElementById('server-status');
-                
-                if (serverStatus) {
-                    serverStatus.textContent = serverHealthy ? 'Conectado ✅' : 'Desconectado ❌';
-                    serverStatus.className = serverHealthy ? 'server-connected' : 'server-disconnected';
-                }
-            }
-        }
-
-        // Instancias de las clases
-        let motionDetector;
-        let zoomManager;
-        let personDetector;
-        let photoCapture;
-
-        // Función de logging mejorada
-        function logDebug(message) {
-            const timestamp = new Date().toLocaleTimeString();
-            const logMessage = `[${timestamp}] ${message}`;
-            console.log(logMessage);
+        for (let i = 0; i < data1.length; i += 4) {
+            const gray1 = (data1[i] + data1[i + 1] + data1[i + 2]) / 3;
+            const gray2 = (data2[i] + data2[i + 1] + data2[i + 2]) / 3;
+            const diff = Math.abs(gray1 - gray2);
             
-            debugConsole.textContent += logMessage + '\n';
-            debugConsole.scrollTop = debugConsole.scrollHeight;
+            totalDiff += diff;
+            if (diff > this.motionThreshold) {
+                motionPixels++;
+            }
+        }
+
+        return {
+            totalDiff: totalDiff,
+            totalPixels: totalPixels,
+            motionArea: motionPixels
+        };
+    }
+
+    setThreshold(threshold) {
+        this.motionThreshold = threshold;
+    }
+}
+
+// Clase para manejar el zoom
+class ZoomManager {
+    constructor(videoElement, canvasElement, contextElement) {
+        this.video = videoElement;
+        this.canvas = canvasElement;
+        this.ctx = contextElement;
+        this.currentZoom = 5; // Iniciar en zoom 5x
+        this.targetZoom = 5;
+        this.transitionSpeed = 0.1;
+    }
+
+    setTargetZoom(zoom) {
+        this.targetZoom = zoom;
+        logDebug(`Zoom objetivo establecido: ${zoom}x`);
+    }
+
+    updateZoom() {
+        if (Math.abs(this.currentZoom - this.targetZoom) > 0.01) {
+            const difference = this.targetZoom - this.currentZoom;
+            this.currentZoom += difference * this.transitionSpeed;
             
-            // Limitar las líneas del debug console
-            const lines = debugConsole.textContent.split('\n');
-            if (lines.length > 100) {
-                debugConsole.textContent = lines.slice(-100).join('\n');
+            if (Math.abs(difference) < 0.01) {
+                this.currentZoom = this.targetZoom;
             }
+            
+            this.updateZoomInfo();
+        }
+    }
+
+    updateZoomInfo() {
+        zoomInfo.textContent = `Zoom: ${this.currentZoom.toFixed(1)}x`;
+    }
+
+    renderFrame() {
+        if (!this.video.videoWidth || !this.video.videoHeight || this.video.paused || this.video.ended) {
+            return;
         }
 
-        // Función para alternar grabación de video
-        async function toggleVideoRecording() {
-            if (!isVideoRecording) {
-                startVideoRecording();
-            } else {
-                stopVideoRecording();
-            }
+        this.canvas.width = this.canvas.offsetWidth;
+        this.canvas.height = this.canvas.offsetHeight;
+
+        if (this.canvas.width === 0 || this.canvas.height === 0) {
+            return;
         }
 
-        // Función para iniciar grabación de video
-        async function startVideoRecording() {
-            if (!video.srcObject) {
-                logDebug("No hay stream de video activo");
-                return;
-            }
+        const videoAspect = this.video.videoWidth / this.video.videoHeight;
+        const canvasAspect = this.canvas.width / this.canvas.height;
 
-            try {
-                // Crear un stream que incluya el canvas con las detecciones
-                const canvasStream = canvas.captureStream(30); // 30 FPS
-                
-                // Configurar el grabador
-                const options = {
-                    mimeType: 'video/webm;codecs=vp8,opus'
-                };
-                
-                mediaRecorder = new MediaRecorder(canvasStream, options);
-                recordedChunks = [];
-                
-                mediaRecorder.ondataavailable = (event) => {
-                    if (event.data.size > 0) {
-                        recordedChunks.push(event.data);
-                    }
-                };
-                
-                mediaRecorder.onstop = () => {
-                    const blob = new Blob(recordedChunks, { type: 'video/webm' });
-                    downloadVideo(blob);
-                    logDebug("Video guardado exitosamente");
-                };
-                
-                // Iniciar grabación
-                mediaRecorder.start();
-                isVideoRecording = true;
-                
-                // Actualizar UI
-                document.getElementById('recording-status').textContent = 'Grabando...';
-                document.getElementById('recording-status').classList.add('recording');
-                document.getElementById('record-btn').textContent = '⏹️ Detener Grabación';
-                document.getElementById('record-btn').classList.add('recording');
-                
-                logDebug("Grabación de video iniciada (10 segundos)");
-                
-                // Detener automáticamente después de 10 segundos
-                recordingTimeout = setTimeout(() => {
-                    stopVideoRecording();
-                }, 10000);
-                
-            } catch (error) {
-                logDebug(`Error iniciando grabación: ${error.message}`);
-            }
+        let drawWidth, drawHeight;
+        let sourceX, sourceY, sourceWidth, sourceHeight;
+
+        sourceWidth = this.video.videoWidth / this.currentZoom;
+        sourceHeight = this.video.videoHeight / this.currentZoom;
+        sourceX = (this.video.videoWidth - sourceWidth) / 2;
+        sourceY = (this.video.videoHeight - sourceHeight) / 2;
+
+        if (videoAspect > canvasAspect) {
+            drawHeight = this.canvas.height;
+            drawWidth = drawHeight * videoAspect;
+        } else {
+            drawWidth = this.canvas.width;
+            drawHeight = drawWidth / videoAspect;
         }
 
-        // Función para detener grabación de video
-        function stopVideoRecording() {
-            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-                mediaRecorder.stop();
-                isVideoRecording = false;
-                
-                // Limpiar timeout si se detiene manualmente
-                if (recordingTimeout) {
-                    clearTimeout(recordingTimeout);
-                }
-                
-                // Actualizar UI
-                document.getElementById('recording-status').textContent = 'Inactivo';
-                document.getElementById('recording-status').classList.remove('recording');
-                document.getElementById('record-btn').textContent = '🎥 Grabar Video (10s)';
-                document.getElementById('record-btn').classList.remove('recording');
-                
-                logDebug("Grabación de video detenida");
+        const drawX = (this.canvas.width - drawWidth) / 2;
+        const drawY = (this.canvas.height - drawHeight) / 2;
+
+        this.ctx.fillStyle = '#000000';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+        try {
+            this.ctx.drawImage(
+                this.video,
+                sourceX, sourceY, sourceWidth, sourceHeight,
+                drawX, drawY, drawWidth, drawHeight
+            );
+        } catch (error) {
+            // Silenciar errores temporales
+        }
+    }
+
+    captureCurrentFrame() {
+        const captureCanvas = document.createElement('canvas');
+        const captureCtx = captureCanvas.getContext('2d');
+        
+        captureCanvas.width = this.video.videoWidth;
+        captureCanvas.height = this.video.videoHeight;
+
+        const sourceWidth = this.video.videoWidth / this.currentZoom;
+        const sourceHeight = this.video.videoHeight / this.currentZoom;
+        const sourceX = (this.video.videoWidth - sourceWidth) / 2;
+        const sourceY = (this.video.videoHeight - sourceHeight) / 2;
+
+        captureCtx.drawImage(
+            this.video,
+            sourceX, sourceY, sourceWidth, sourceHeight,
+            0, 0, captureCanvas.width, captureCanvas.height
+        );
+
+        return captureCanvas.toDataURL('image/png');
+    }
+}
+
+// Clase para detección de personas
+class PersonDetector {
+    constructor() {
+        this.model = null;
+        this.isLoaded = false;
+    }
+
+    async loadModel() {
+        try {
+            logDebug("Cargando modelo COCO-SSD...");
+            loadingOverlay.style.display = 'flex';
+            modelStatus.textContent = 'Cargando...';
+            
+            if (typeof cocoSsd === 'undefined') {
+                throw new Error('COCO-SSD no está disponible');
+            }
+            
+            this.model = await cocoSsd.load();
+            this.isLoaded = true;
+            modelStatus.textContent = 'Cargado ✅';
+            loadingOverlay.style.display = 'none';
+            logDebug("Modelo COCO-SSD cargado exitosamente");
+        } catch (error) {
+            logDebug(`Error cargando modelo: ${error.message}`);
+            modelStatus.textContent = 'Error ❌';
+            loadingOverlay.style.display = 'none';
+            this.isLoaded = false;
+        }
+    }
+
+    async detectPersonsAndObjects() {
+        if (!this.isLoaded || !this.model) return { persons: [], objects: [] };
+
+        try {
+            const predictions = await this.model.detect(video);
+            const confidence = detectionConfidenceSlider.value / 100;
+            
+            const validPredictions = predictions.filter(p => p.score > confidence);
+            const persons = validPredictions.filter(p => p.class === 'person');
+            const objects = validPredictions.filter(p => p.class !== 'person');
+            
+            return {
+                persons: persons,
+                objects: objects,
+                all: validPredictions
+            };
+        } catch (error) {
+            logDebug(`Error en detección: ${error.message}`);
+            return { persons: [], objects: [] };
+        }
+    }
+
+    async detectPerson() {
+        const detection = await this.detectPersonsAndObjects();
+        return detection.persons.length > 0;
+    }
+
+    async detectBodyParts() {
+        const detection = await this.detectPersonsAndObjects();
+        const bodyRelatedObjects = detection.objects.filter(obj => 
+            ['bottle', 'cup', 'cell phone', 'handbag', 'backpack'].includes(obj.class)
+        );
+        
+        return {
+            detected: bodyRelatedObjects.length > 0,
+            objects: bodyRelatedObjects,
+            persons: detection.persons
+        };
+    }
+}
+
+// Clase PhotoCapture corregida con descarga automática
+class PhotoCapture {
+    constructor() {
+        this.isCapturing = false;
+        this.photoCount = 0;
+        this.maxPhotos = 3;
+        this.captureReason = '';
+        this.autoDownload = true; // Nueva opción para descarga automática
+    }
+
+    async startCapturing(reason = 'Detección automática') {
+        if (this.isCapturing) return;
+        
+        this.isCapturing = true;
+        this.captureReason = reason;
+        this.maxPhotos = parseInt(photoCountSlider.value);
+        
+        logDebug(`📸 Iniciando captura de ${this.maxPhotos} fotos por: ${reason}`);
+        
+        for (let i = 0; i < this.maxPhotos; i++) {
+            await this.capturePhoto();
+            if (i < this.maxPhotos - 1) {
+                await this.delay(800); // Pausa más larga entre fotos
             }
         }
+        
+        this.isCapturing = false;
+        logDebug(`✅ Captura completada: ${this.maxPhotos} fotos`);
+    }
 
-        // Función para descargar video
-        function downloadVideo(blob) {
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
+    async capturePhoto() {
+        if (!zoomManager) {
+            logDebug("❌ ZoomManager no disponible para captura");
+            return;
+        }
+
+        try {
+            // Capturar frame actual del canvas
+            const photoData = this.captureFromCanvas();
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-            a.href = url;
-            a.download = `deteccion_video_${timestamp}.webm`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        }
-
-        // Función principal para iniciar el video
-        async function startVideo() {
-            try {
-                logDebug("Solicitando acceso a la cámara...");
-                
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: {
-                        width: { ideal: 1920 },
-                        height: { ideal: 1080 },
-                        facingMode: 'environment' // Usar cámara trasera si está disponible
-                    },
-                    audio: false
-                });
-
-                video.srcObject = stream;
-                video.play();
-                
-                video.onloadedmetadata = () => {
-                    logDebug(`Video iniciado: ${video.videoWidth}x${video.videoHeight}`);
-                    initializeDetectors();
-                    startAllProcesses();
-                };
-
-            } catch (error) {
-                logDebug(`Error accediendo a la cámara: ${error.message}`);
-                updateStatus('Error accediendo a la cámara', 'error');
-            }
-        }
-
-        // Inicializar todos los detectores
-        async function initializeDetectors() {
-            try {
-                // Inicializar zoom manager
-                zoomManager = new ZoomManager(video, canvas, ctx);
-                zoomManager.setTargetZoom(5); // Establecer zoom inicial en 5x
-                
-                // Inicializar detector de movimiento
-                motionDetector = new MotionDetector(video, canvas);
-                motionDetector.setThreshold(motionThreshold);
-                
-                // Inicializar detector de personas
-                personDetector = new PersonDetector();
-                await personDetector.loadModel();
-                
-                // Inicializar capturador de fotos
-                photoCapture = new PhotoCapture();
-                
-                // Verificar conexión con servidor
-                await initializePhotoService();
-                
-                logDebug("Todos los detectores inicializados correctamente");
-                
-            } catch (error) {
-                logDebug(`Error inicializando detectores: ${error.message}`);
-            }
-        }
-
-        // Iniciar todos los procesos de detección
-        function startAllProcesses() {
-            if (isRecording) return;
+            const filename = `foto_${this.captureReason.replace(/\s+/g, '_')}_${timestamp}`;
             
-            isRecording = true;
-            logDebug("Iniciando todos los procesos de detección...");
+            // Crear elemento img para mostrar en la galería
+            const img = document.createElement('img');
+            img.src = photoData;
+            img.className = 'captured-photo';
+            img.title = `${this.captureReason} - ${new Date().toLocaleString()}`;
             
-            // Proceso de renderizado del canvas
-            renderInterval = setInterval(() => {
-                if (zoomManager) {
-                    zoomManager.updateZoom();
-                    zoomManager.renderFrame();
-                }
-            }, 1000 / RENDER_FPS);
-
-            // Proceso de detección de personas
-            if (detectPersonsCheckbox.checked) {
-                detectionInterval = setInterval(async () => {
-                    await performPersonDetection();
-                }, DETECTION_INTERVAL);
-            }
-
-            // Proceso de detección de movimiento
-            if (detectMotionCheckbox.checked) {
-                motionDetectionInterval = setInterval(() => {
-                    performMotionDetection();
-                }, MOTION_DETECTION_INTERVAL);
-            }
-            
-            updateStatus('Sistema activo - Monitoreando...', 'active');
-            logDebug("Todos los procesos iniciados correctamente");
-        }
-
-        // Función de detección de personas mejoradapersonDetected
-        async function performPersonDetection() {
-            if (!personDetector || !personDetector.isLoaded) return;
-
-            try {
-                const currentTime = Date.now();
-                let detectionMade = false;
-
-                if (detectPersonsCheckbox.checked) {
-                    const personDetected = await personDetector.detectPerson();
-                    
-                    if (personDetected) {
-                        personDetectedTime = currentTime;
-                        lastDetectionTime = currentTime;
-                        detectionMade = true;
-                        
-                        zoomManager.setTargetZoom(1); // Alejar a zoom 1x
-                        
-                        updateStatus('¡Persona detectada! Aplicando zoom...', 'detected');
-                        updatePersonCount(1);
-                        
-                        // Capturar fotos si está habilitado
-                        if (autoCaptureCheckbox.checked && !photoCapture.isCapturing) {
-                            await photoCapture.startCapturing('Persona detectada');
-                        }
-                        
-                        // NUEVA LÓGICA: Volver al zoom 5x después de 10 segundos
-                        clearTimeout(zoomResetTimeout);
-                        zoomResetTimeout = setTimeout(() => {
-                            zoomManager.setTargetZoom(5); // Volver a zoom 5x
-                            updateStatus('Zoom reseteado a 5x - Continuando monitoreo...', 'active');
-                        }, 10000); // 10 segundos
-                    } else {
-                        updatePersonCount(0);
-                        
-                         // Si no hay persona hace tiempo, asegurar que esté en zoom 5x
-                        if (currentTime - lastDetectionTime > 10000) { // Cambiar de ZOOM_DURATION a 10000
-                            zoomManager.setTargetZoom(5); // Mantener en zoom 5x
-                        }
-                    }
-                }
-
-                // Detección de partes del cuerpo si está habilitada
-                if (detectBodyPartsCheckbox.checked) {
-                    const bodyPartsDetection = await personDetector.detectBodyParts();
-                    if (bodyPartsDetection.detected && !detectionMade) {
-                        logDebug(`Objetos relacionados detectados: ${bodyPartsDetection.objects.length}`);
-                        
-                        if (autoCaptureCheckbox.checked && !photoCapture.isCapturing) {
-                            await photoCapture.startCapturing('Objetos detectados');
-                        }
-                    }
-                }
-
-                if (!detectionMade && currentTime - lastDetectionTime > 5000) {
-                    updateStatus('Sin detecciones - Monitoreando...', 'waiting');
-                }
-
-            } catch (error) {
-                logDebug(`Error en detección de personas: ${error.message}`);
-            }
-        }
-
-        // Función de detección de movimiento mejorada
-        function performMotionDetection() {
-            if (!motionDetector) return;
-
-            try {
-                const motion = motionDetector.detectMotion();
-                const currentTime = Date.now();
-                
-                updateMotionLevel(motion.level);
-                
-                if (motion.detected && motion.area > motionDetector.minMotionArea) {
-                    if (currentTime - lastMotionTime > MOTION_COOLDOWN) {
-                        motionDetected = true;
-                        lastMotionTime = currentTime;
-                        
-                        zoomManager.setTargetZoom(1);
-                        
-                            logDebug(`Movimiento detectado: ${motion.level}% (${motion.area} píxeles)`);
-                            updateStatus('¡Movimiento detectado! Alejando zoom...', 'motion');
-                        
-                        // Capturar fotos por movimiento si está habilitado
-                        if (autoCaptureCheckbox.checked && !photoCapture.isCapturing) {
-                            photoCapture.startCapturing('Movimiento detectado');
-                        }
-                        // NUEVA LÓGICA: Volver al zoom 5x después de 10 segundos
-                        clearTimeout(zoomResetTimeout);
-                        zoomResetTimeout = setTimeout(() => {
-                            zoomManager.setTargetZoom(5);
-                            updateStatus('Zoom reseteado a 5x - Continuando monitoreo...', 'active');
-                        }, 10000);
-                    }
-                } else {
-                    motionDetected = false;
-                }
-
-            } catch (error) {
-                logDebug(`Error en detección de movimiento: ${error.message}`);
-            }
-        }
-
-        // Funciones de actualización de UI
-        function updateStatus(message, type) {
-            movementStatus.textContent = message;
-            movementStatus.className = `status-${type}`;
-        }
-
-        function updatePersonCount(count) {
-            personCountDisplay.textContent = count;
-        }
-
-        function updateMotionLevel(level) {
-            motionLevelDisplay.textContent = `${level}%`;
-        }
-
-        // Función de prueba de zoom
-        function testZoom() {
-            if (!zoomManager) {
-                logDebug("Zoom manager no inicializado");
-                return;
-            }
-            
-            const zoomLevel = parseInt(zoomLevelSlider.value);
-            logDebug(`Probando zoom ${zoomLevel}x...`);
-            
-            zoomManager.setTargetZoom(zoomLevel);
-            updateStatus(`Probando zoom ${zoomLevel}x...`, 'active');
-            
-            setTimeout(() => {
-                zoomManager.setTargetZoom(5);
-                updateStatus('Prueba de zoom completada - Zoom en 5x', 'active');
-            }, 3000);
-        }
-
-        // Función para capturar foto manual
-        async function capturePhoto() {
-            if (!photoCapture) {
-                logDebug("Capturador de fotos no inicializado");
-                return;
-            }
-            
-            await photoCapture.startCapturing('Captura manual');
-        }
-
-        // Función para limpiar fotos
-        function clearPhotos() {
-            if (photoCapture) {
-                photoCapture.clearAllPhotos();
-            }
-        }
-
-        // Función para detener todos los procesos
-        function stopAllProcesses() {
-            isRecording = false;
-            
-            // Detener grabación de video si está activa
-            if (isVideoRecording) {
-                stopVideoRecording();
-            }
-            
-            // Detener intervalos
-            if (detectionInterval) {
-                clearInterval(detectionInterval);
-                detectionInterval = null;
-            }
-            
-            if (renderInterval) {
-                clearInterval(renderInterval);
-                renderInterval = null;
-            }
-            
-            if (motionDetectionInterval) {
-                clearInterval(motionDetectionInterval);
-                motionDetectionInterval = null;
-            }
-            
-            if (zoomResetTimeout) {
-                clearTimeout(zoomResetTimeout);
-                zoomResetTimeout = null;
-            }
-            
-            // Detener video
-            if (video.srcObject) {
-                const tracks = video.srcObject.getTracks();
-                tracks.forEach(track => track.stop());
-                video.srcObject = null;
-            }
-            
-            // Resetear zoom
-            if (zoomManager) {
-                zoomManager.setTargetZoom(5);
-            }
-            
-            // Limpiar canvas
-            if (ctx) {
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                ctx.fillStyle = '#000000';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-            }
-            
-            updateStatus('Sistema detenido', 'waiting');
-            updatePersonCount(0);
-            updateMotionLevel(0);
-            
-            logDebug("Todos los procesos han sido detenidos");
-        }
-
-        // Configurar responsividad del canvas
-        function setupCanvasResponsiveness() {
-            const resizeCanvas = () => {
-                if (canvas && zoomManager) {
-                    canvas.width = canvas.offsetWidth;
-                    canvas.height = canvas.offsetHeight;
-                }
+            // Hacer clic para descargar
+            img.onclick = () => {
+                this.downloadPhoto(photoData, filename);
             };
             
-            window.addEventListener('resize', resizeCanvas);
-            resizeCanvas();
+            // Agregar a la galería
+            photosDiv.appendChild(img);
+            photosDiv.scrollLeft = photosDiv.scrollWidth;
+            
+            // Descarga automática si está habilitada
+            if (this.autoDownload) {
+                this.downloadPhoto(photoData, filename);
+            }
+            
+            this.photoCount++;
+            logDebug(`📷 Foto capturada: ${filename}`);
+            
+        } catch (error) {
+            logDebug(`❌ Error capturando foto: ${error.message}`);
+        }
+    }
+
+    captureFromCanvas() {
+        // Si no hay zoomManager, capturar directamente del canvas
+        if (!zoomManager) {
+            return canvas.toDataURL('image/png', 0.9);
+        }
+        
+        // Crear canvas temporal para captura de alta calidad
+        const captureCanvas = document.createElement('canvas');
+        const captureCtx = captureCanvas.getContext('2d');
+        
+        // Usar resolución del video o canvas
+        captureCanvas.width = video.videoWidth || canvas.width;
+        captureCanvas.height = video.videoHeight || canvas.height;
+        
+        try {
+            if (video.videoWidth && video.videoHeight) {
+                // Capturar directamente del video para mejor calidad
+                if (zoomManager && zoomManager.currentZoom !== 1) {
+                    // Si hay zoom, aplicar el recorte
+                    const sourceWidth = video.videoWidth / zoomManager.currentZoom;
+                    const sourceHeight = video.videoHeight / zoomManager.currentZoom;
+                    const sourceX = (video.videoWidth - sourceWidth) / 2;
+                    const sourceY = (video.videoHeight - sourceHeight) / 2;
+                    
+                    captureCtx.drawImage(
+                        video,
+                        sourceX, sourceY, sourceWidth, sourceHeight,
+                        0, 0, captureCanvas.width, captureCanvas.height
+                    );
+                } else {
+                    // Sin zoom, capturar completo
+                    captureCtx.drawImage(video, 0, 0, captureCanvas.width, captureCanvas.height);
+                }
+            } else {
+                // Fallback: capturar del canvas actual
+                captureCtx.drawImage(canvas, 0, 0, captureCanvas.width, captureCanvas.height);
+            }
+        } catch (error) {
+            logDebug(`⚠️ Error en captura avanzada, usando fallback: ${error.message}`);
+            // Fallback simple
+            captureCtx.drawImage(canvas, 0, 0, captureCanvas.width, captureCanvas.height);
+        }
+        
+        return captureCanvas.toDataURL('image/jpeg', 0.9); // JPEG para archivos más pequeños
+    }
+
+    downloadPhoto(photoData, filename) {
+        try {
+            // Crear enlace de descarga
+            const link = document.createElement('a');
+            link.href = photoData;
+            link.download = `${filename}.jpg`;
+            
+            // Agregar al DOM temporalmente y hacer clic
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            logDebug(`💾 Foto descargada: ${filename}.jpg`);
+            
+        } catch (error) {
+            logDebug(`❌ Error descargando foto: ${error.message}`);
+            
+            // Fallback: abrir en nueva pestaña
+            try {
+                window.open(photoData, '_blank');
+                logDebug(`🔗 Foto abierta en nueva pestaña (fallback)`);
+            } catch (fallbackError) {
+                logDebug(`❌ Error en fallback: ${fallbackError.message}`);
+            }
+        }
+    }
+
+    delay(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    clearAllPhotos() {
+        photosDiv.innerHTML = '';
+        this.photoCount = 0;
+        logDebug('🗑️ Fotos eliminadas de la galería');
+    }
+
+    // Nueva función para configurar descarga automática
+    setAutoDownload(enabled) {
+        this.autoDownload = enabled;
+        logDebug(`📥 Descarga automática: ${enabled ? 'Activada' : 'Desactivada'}`);
+    }
+}
+
+// Función de logging
+function logDebug(message) {
+    const timestamp = new Date().toLocaleTimeString();
+    const logMessage = `[${timestamp}] ${message}`;
+    console.log(logMessage);
+    
+    debugConsole.textContent += logMessage + '\n';
+    debugConsole.scrollTop = debugConsole.scrollHeight;
+    
+    const lines = debugConsole.textContent.split('\n');
+    if (lines.length > 100) {
+        debugConsole.textContent = lines.slice(-100).join('\n');
+    }
+}
+
+// Función para iniciar grabación de video automática
+async function startAutoVideoRecording() {
+    if (!video.srcObject || isVideoRecording) {
+        return;
+    }
+
+    try {
+        // Crear streams con audio
+        const videoStream = canvas.captureStream(30);
+        
+        // Intentar obtener audio
+        let combinedStream;
+        try {
+            audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            
+            // Combinar video del canvas con audio del micrófono
+            combinedStream = new MediaStream([
+                ...videoStream.getVideoTracks(),
+                ...audioStream.getAudioTracks()
+            ]);
+            
+            logDebug("Audio capturado exitosamente");
+        } catch (audioError) {
+            logDebug("No se pudo capturar audio, grabando solo video");
+            combinedStream = videoStream;
+        }
+        
+        // Intentar usar codecs compatibles con MP4
+        const mimeTypes = [
+            'video/mp4;codecs=h264,aac',
+            'video/webm;codecs=vp9,opus',
+            'video/webm;codecs=vp8,opus',
+            'video/webm'
+        ];
+        
+        let selectedMimeType = null;
+        for (const mimeType of mimeTypes) {
+            if (MediaRecorder.isTypeSupported(mimeType)) {
+                selectedMimeType = mimeType;
+                break;
+            }
+        }
+        
+        if (!selectedMimeType) {
+            throw new Error('No se encontró un codec compatible');
+        }
+        
+        logDebug(`Usando codec: ${selectedMimeType}`);
+        
+        const options = {
+            mimeType: selectedMimeType,
+            videoBitsPerSecond: 2500000 // 2.5 Mbps para mejor calidad
+        };
+        
+        mediaRecorder = new MediaRecorder(combinedStream, options);
+        recordedChunks = [];
+        recordingStartTime = Date.now();
+        
+        mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0) {
+                recordedChunks.push(event.data);
+            }
+        };
+        
+        mediaRecorder.onstop = () => {
+            const blob = new Blob(recordedChunks, { 
+                type: selectedMimeType.includes('mp4') ? 'video/mp4' : 'video/webm' 
+            });
+            downloadVideo(blob, selectedMimeType.includes('mp4'));
+            
+            // Limpiar streams de audio
+            if (audioStream) {
+                audioStream.getTracks().forEach(track => track.stop());
+                audioStream = null;
+            }
+        };
+        
+        // Iniciar grabación
+        mediaRecorder.start();
+        isVideoRecording = true;
+        
+        // Actualizar UI
+        document.getElementById('recording-status').textContent = 'Grabando...';
+        document.getElementById('recording-status').classList.add('recording');
+        
+        // Mostrar countdown
+        startCountdown(10);
+        
+        logDebug("Grabación automática iniciada (10 segundos)");
+        
+        // Detener automáticamente después de 10 segundos
+        recordingTimeout = setTimeout(() => {
+            stopVideoRecording();
+        }, VIDEO_DURATION);
+        
+    } catch (error) {
+        logDebug(`Error iniciando grabación: ${error.message}`);
+    }
+}
+
+// Función para mostrar countdown
+function startCountdown(seconds) {
+    let remaining = seconds;
+    countdownDisplay.textContent = remaining;
+    countdownDisplay.style.display = 'block';
+    
+    countdownInterval = setInterval(() => {
+        remaining--;
+        countdownDisplay.textContent = remaining;
+        
+        if (remaining <= 0) {
+            clearInterval(countdownInterval);
+            countdownDisplay.style.display = 'none';
+        }
+    }, 1000);
+}
+
+// Función para detener grabación
+function stopVideoRecording() {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+        isVideoRecording = false;
+        
+        if (recordingTimeout) {
+            clearTimeout(recordingTimeout);
+        }
+        
+        if (countdownInterval) {
+            clearInterval(countdownInterval);
+            countdownDisplay.style.display = 'none';
+        }
+        
+        document.getElementById('recording-status').textContent = 'Video guardado';
+        document.getElementById('recording-status').classList.remove('recording');
+        
+        totalVideosCaptured++;
+        videoCountDisplay.textContent = totalVideosCaptured;
+        
+        logDebug("Grabación detenida");
+    }
+}
+
+// Función para descargar video
+function downloadVideo(blob, isMp4 = false) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const extension = isMp4 ? 'mp4' : 'webm';
+    
+    a.href = url;
+    a.download = `deteccion_video_${timestamp}.${extension}`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    logDebug(`Video guardado como .${extension}`);
+}
+
+// FUNCIÓN CORREGIDA: Verificación de permisos de cámara
+async function checkCameraPermissions() {
+    try {
+        // Verificar si getUserMedia está disponible
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            throw new Error('getUserMedia no está disponible en este navegador');
         }
 
-        // Inicialización cuando se carga la página
-        document.addEventListener('DOMContentLoaded', function() {
-            logDebug("Aplicación iniciada");
-            setupCanvasResponsiveness();
+        // Verificar protocolo - PERMITIR file:// para desarrollo local
+        if (location.protocol !== 'https:' && 
+            location.protocol !== 'file:' && 
+            location.hostname !== 'localhost' && 
+            location.hostname !== '127.0.0.1') {
             
-            // Configurar controles iniciales
-            motionThreshold = 50 - (motionSensitivitySlider.value * 4);
+            logDebug('⚠️ Advertencia: Para producción use HTTPS. Continuando en modo desarrollo...');
+            // NO retornar false aquí para permitir desarrollo local
+        }
+
+        // Intentar verificar permisos si está disponible
+        if (navigator.permissions && navigator.permissions.query) {
+            try {
+                const result = await navigator.permissions.query({name: 'camera'});
+                logDebug(`Estado de permisos: ${result.state}`);
+            } catch (e) {
+                logDebug('API de permisos no disponible, continuando...');
+            }
+        }
+        
+        return true;
+    } catch (error) {
+        logDebug(`Error verificando permisos: ${error.message}`);
+        return true; // Continuar de todos modos
+    }
+}
+// Función simplificada para verificar compatibilidad
+function checkBrowserCompatibility() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        logDebug("❌ getUserMedia no está disponible en este navegador");
+        updateStatus('Navegador no compatible con acceso a cámara', 'error');
+        return false;
+    }
+    
+    logDebug("✅ Navegador compatible con getUserMedia");
+    return true;
+}
+
+// Función principal corregida para iniciar el video
+async function startVideo() {
+    try {
+        // Verificar compatibilidad del navegador primero
+        if (!checkBrowserCompatibility()) {
+            return;
+        }
+
+        logDebug("🎥 Solicitando acceso a la cámara...");
+        updateStatus('Solicitando acceso a la cámara...', 'waiting');
+
+        // Constraints más flexibles para mejor compatibilidad
+        const constraints = {
+            video: {
+                width: { ideal: 1280, min: 320 },
+                height: { ideal: 720, min: 240 },
+                facingMode: "user" // Empezar con cámara frontal que suele ser más compatible
+            },
+            audio: false
+        };
+
+        logDebug("📋 Constraints configurados:", constraints);
+
+        // Solicitar acceso a la cámara
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        
+        logDebug("✅ Stream obtenido exitosamente");
+        
+        // Asignar el stream al elemento video
+        video.srcObject = stream;
+        
+        // Configurar eventos del video
+        video.onloadedmetadata = async () => {
+            logDebug(`📹 Video cargado: ${video.videoWidth}x${video.videoHeight}`);
+            updateStatus('Cámara iniciada - Inicializando detectores...', 'success');
             
-            // Verificar compatibilidad
-            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                logDebug("getUserMedia no es compatible con este navegador");
-                updateStatus('Navegador no compatible', 'error');
+            try {
+                await initializeDetectors();
+                startAllProcesses();
+                updateStatus('Sistema completamente activo', 'success');
+            } catch (initError) {
+                logDebug(`❌ Error inicializando detectores: ${initError.message}`);
+                updateStatus('Cámara OK - Error en detectores', 'warning');
+            }
+        };
+
+        video.onerror = (error) => {
+            logDebug(`❌ Error en elemento video: ${error}`);
+            updateStatus('Error reproduciendo video', 'error');
+        };
+
+        // Intentar reproducir el video
+        try {
+            await video.play();
+            logDebug("▶️ Video reproduciéndose correctamente");
+        } catch (playError) {
+            logDebug(`⚠️ Error al reproducir (puede ser normal): ${playError.message}`);
+            // Muchas veces el video se reproduce automáticamente sin necesidad de .play()
+        }
+
+    } catch (error) {
+        logDebug(`❌ Error accediendo a la cámara: ${error.name} - ${error.message}`);
+        
+        // Manejo específico de errores
+        switch (error.name) {
+            case 'NotAllowedError':
+                updateStatus('❌ Permisos de cámara denegados. Por favor permite el acceso.', 'error');
+                showCameraHelp('permisos');
+                break;
+                
+            case 'NotFoundError':
+                updateStatus('❌ No se encontró ninguna cámara en el dispositivo', 'error');
+                showCameraHelp('nocamera');
+                break;
+                
+            case 'NotReadableError':
+                updateStatus('❌ Cámara en uso por otra aplicación', 'error');
+                showCameraHelp('busy');
+                break;
+                
+            case 'OverconstrainedError':
+                logDebug("⚠️ Constraints muy restrictivos, intentando con configuración básica...");
+                await retryWithBasicConstraints();
+                break;
+                
+            case 'SecurityError':
+                updateStatus('❌ Error de seguridad. ¿Estás usando HTTPS?', 'error');
+                showCameraHelp('https');
+                break;
+                
+            default:
+                updateStatus(`❌ Error desconocido: ${error.message}`, 'error');
+                logDebug("🔄 Reintentando en 3 segundos...");
+                setTimeout(() => retryWithBasicConstraints(), 3000);
+        }
+    }
+}
+// Función para reintentar con constraints básicos
+async function retryWithBasicConstraints() {
+    try {
+        logDebug("🔄 Reintentando con constraints básicos...");
+        updateStatus('Reintentando con configuración básica...', 'waiting');
+        
+        const basicConstraints = {
+            video: true,
+            audio: false
+        };
+        
+        const stream = await navigator.mediaDevices.getUserMedia(basicConstraints);
+        video.srcObject = stream;
+        
+        video.onloadedmetadata = async () => {
+            logDebug(`✅ Video iniciado con constraints básicos: ${video.videoWidth}x${video.videoHeight}`);
+            updateStatus('Cámara iniciada con configuración básica', 'success');
+            
+            try {
+                await initializeDetectors();
+                startAllProcesses();
+                updateStatus('Sistema activo con configuración básica', 'success');
+            } catch (initError) {
+                logDebug(`❌ Error inicializando detectores: ${initError.message}`);
+                updateStatus('Cámara OK - Funcionando sin detectores IA', 'warning');
+                startBasicMode();
+            }
+        };
+        
+        await video.play();
+        
+    } catch (retryError) {
+        logDebug(`❌ Error en segundo intento: ${retryError.message}`);
+        updateStatus('❌ No se pudo acceder a la cámara', 'error');
+        showCameraHelp('failed');
+    }
+}
+// Modo básico sin IA (solo para mostrar la cámara)
+function startBasicMode() {
+    logDebug("🔧 Iniciando modo básico sin IA...");
+    
+    // Solo renderizar el video sin detectores
+    renderInterval = setInterval(() => {
+        if (video.videoWidth && video.videoHeight) {
+            canvas.width = canvas.offsetWidth;
+            canvas.height = canvas.offsetHeight;
+            
+            const videoAspect = video.videoWidth / video.videoHeight;
+            const canvasAspect = canvas.width / canvas.height;
+            
+            let drawWidth, drawHeight, drawX, drawY;
+            
+            if (videoAspect > canvasAspect) {
+                drawHeight = canvas.height;
+                drawWidth = drawHeight * videoAspect;
             } else {
-                updateStatus('Listo para iniciar - Presiona "Iniciar Cámara"', 'waiting');
+                drawWidth = canvas.width;
+                drawHeight = drawWidth / videoAspect;
             }
-        });
-
-        // Manejar errores globales
-        window.addEventListener('error', function(event) {
-            logDebug(`Error global: ${event.error.message}`);
-        });
-
-        // Manejar promesas rechazadas
-        window.addEventListener('unhandledrejection', function(event) {
-            logDebug(`Promise rechazada: ${event.reason}`);
-        });
-
-        // Prevenir que la página se recargue accidentalmente
-        window.addEventListener('beforeunload', function(event) {
-            if (isRecording) {
-                event.preventDefault();
-                event.returnValue = '¿Estás seguro de que quieres salir? La detección se detendrá.';
+            
+            drawX = (canvas.width - drawWidth) / 2;
+            drawY = (canvas.height - drawHeight) / 2;
+            
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            try {
+                ctx.drawImage(video, drawX, drawY, drawWidth, drawHeight);
+            } catch (e) {
+                // Ignorar errores temporales de renderizado
             }
+        }
+    }, 1000 / 30); // 30 FPS
+}
+// Función para mostrar ayuda según el tipo de error
+function showCameraHelp(errorType) {
+    const helpMessages = {
+        permisos: "💡 Haz clic en el ícono de cámara en la barra de direcciones y permite el acceso. Luego recarga la página.",
+        nocamera: "💡 Verifica que tengas una cámara conectada y que funcione en otras aplicaciones.",
+        busy: "💡 Cierra otras aplicaciones que puedan estar usando la cámara (Zoom, Teams, etc.) y recarga.",
+        https: "💡 Para usar la cámara necesitas HTTPS. En desarrollo local puedes usar localhost o 127.0.0.1",
+        failed: "💡 Intenta recargar la página o usar un navegador diferente (Chrome recomendado)."
+    };
+    
+    if (helpMessages[errorType]) {
+        logDebug(helpMessages[errorType]);
+        
+        // Mostrar ayuda en la UI
+        setTimeout(() => {
+            updateStatus(helpMessages[errorType], 'error');
+        }, 2000);
+    }
+}
+
+
+// Función mejorada de inicialización de detectores (incluir PhotoCapture)
+async function initializeDetectors() {
+
+    try {
+        logDebug("🔧 Inicializando detectores...");
+        
+        // Inicializar zoom manager primero
+        zoomManager = new ZoomManager(video, canvas, ctx);
+        zoomManager.setTargetZoom(5);
+        logDebug("✅ Zoom manager inicializado");
+        
+        // Inicializar detector de movimiento
+        motionDetector = new MotionDetector(video, canvas);
+        motionDetector.setThreshold(motionThreshold);
+        logDebug("✅ Detector de movimiento inicializado");
+        
+        // Inicializar detector de personas
+        personDetector = new PersonDetector();
+        await personDetector.loadModel();
+        logDebug("✅ Detector de personas inicializado");
+        
+        // Inicializar capturador de fotos
+        photoCapture = new PhotoCapture();
+        photoCapture.setAutoDownload(true); // Activar descarga automática por defecto
+        logDebug("✅ Capturador de fotos inicializado");
+        
+        logDebug("🎉 Todos los detectores inicializados correctamente");
+        
+    } catch (error) {
+        logDebug(`❌ Error crítico inicializando detectores: ${error.message}`);
+        throw error;
+    }
+}
+
+// Iniciar procesos de detección
+function startAllProcesses() {
+    if (isRecording) return;
+    
+    // Verificar que los detectores estén inicializados
+    if (!zoomManager || !motionDetector || !personDetector) {
+        logDebug("Esperando inicialización de detectores...");
+        setTimeout(startAllProcesses, 1000);
+        return;
+    }
+    
+    isRecording = true;
+    
+    // Renderizado
+    renderInterval = setInterval(() => {
+        if (zoomManager) {
+            zoomManager.updateZoom();
+            zoomManager.renderFrame();
+        }
+    }, 1000 / RENDER_FPS);
+
+    // Detección de personas
+    if (detectPersonsCheckbox.checked) {
+        detectionInterval = setInterval(async () => {
+            if (!isPaused) {
+                await performPersonDetection();
+            }
+        }, DETECTION_INTERVAL);
+    }
+
+    // Detección de movimiento
+    if (detectMotionCheckbox.checked) {
+        motionDetectionInterval = setInterval(() => {
+            if (!isPaused) {
+                performMotionDetection();
+            }
+        }, MOTION_DETECTION_INTERVAL);
+    }
+    
+    updateStatus('Sistema activo - Zoom 5x - Monitoreando...', 'active');
+    logDebug("Sistema iniciado en modo automático");
+}
+
+// Detección de personas con grabación automática
+async function performPersonDetection() {
+    if (!personDetector || !personDetector.isLoaded || isVideoRecording || !zoomManager) return;
+
+    try {
+        const currentTime = Date.now();
+        let detectionMade = false;
+
+        if (detectPersonsCheckbox.checked) {
+            const personDetected = await personDetector.detectPerson();
+            
+            if (personDetected) {
+                personDetectedTime = currentTime;
+                lastDetectionTime = currentTime;
+                detectionMade = true;
+                
+                zoomManager.setTargetZoom(1); // Cambiar a zoom 1x
+                
+                updateStatus('¡Persona detectada! Zoom 1x', 'detected');
+                updatePersonCount(1);
+                
+                // Captura de fotos automática
+                if (autoCaptureCheckbox.checked && !photoCapture.isCapturing) {
+                    await photoCapture.startCapturing('Persona detectada');
+                }
+                
+                // Grabación de video automática
+                if (autoRecordCheckbox.checked && !isVideoRecording) {
+                    await startAutoVideoRecording();
+                }
+                
+                // Volver a zoom 5x después de 10 segundos
+                clearTimeout(zoomResetTimeout);
+                zoomResetTimeout = setTimeout(() => {
+                    zoomManager.setTargetZoom(5);
+                    updateStatus('Zoom restaurado a 5x - Monitoreando...', 'active');
+                    logDebug("Zoom restaurado a 5x");
+                }, ZOOM_HOLD_DURATION);
+            } else {
+                updatePersonCount(0);
+                
+                if (currentTime - lastDetectionTime > ZOOM_HOLD_DURATION) {
+                    zoomManager.setTargetZoom(5);
+                }
+            }
+        }
+
+        // Detección de partes del cuerpo
+        if (detectBodyPartsCheckbox.checked && !detectionMade) {
+            const bodyPartsDetection = await personDetector.detectBodyParts();
+            if (bodyPartsDetection.detected) {
+                detectionMade = true;
+                zoomManager.setTargetZoom(1);
+                
+                updateStatus('¡Objetos corporales detectados! Zoom 1x', 'detected');
+                logDebug(`Objetos detectados: ${bodyPartsDetection.objects.map(o => o.class).join(', ')}`);
+                
+                if (autoCaptureCheckbox.checked && !photoCapture.isCapturing) {
+                    await photoCapture.startCapturing('Objetos detectados');
+                }
+                
+                if (autoRecordCheckbox.checked && !isVideoRecording) {
+                    await startAutoVideoRecording();
+                }
+                
+                clearTimeout(zoomResetTimeout);
+                zoomResetTimeout = setTimeout(() => {
+                    zoomManager.setTargetZoom(5);
+                    updateStatus('Zoom restaurado a 5x - Monitoreando...', 'active');
+                }, ZOOM_HOLD_DURATION);
+            }
+        }
+
+        if (!detectionMade && currentTime - lastDetectionTime > 15000 && !isVideoRecording) {
+            updateStatus('Sin detecciones - Zoom 5x - Monitoreando...', 'waiting');
+        }
+
+    } catch (error) {
+        logDebug(`Error en detección: ${error.message}`);
+    }
+}
+
+// Detección de movimiento con grabación automática
+function performMotionDetection() {
+    if (!motionDetector || isVideoRecording || !zoomManager) return;
+
+    try {
+        const motion = motionDetector.detectMotion();
+        const currentTime = Date.now();
+        
+        updateMotionLevel(motion.level);
+        
+        if (motion.detected && motion.area > motionDetector.minMotionArea) {
+            if (currentTime - lastMotionTime > MOTION_COOLDOWN) {
+                motionDetected = true;
+                lastMotionTime = currentTime;
+                
+                zoomManager.setTargetZoom(1);
+                
+                logDebug(`Movimiento detectado: ${motion.level}%`);
+                updateStatus('¡Movimiento detectado! Zoom 1x', 'motion');
+                
+                // Captura de fotos automática
+                if (autoCaptureCheckbox.checked && !photoCapture.isCapturing) {
+                    photoCapture.startCapturing('Movimiento detectado');
+                }
+                
+                // Grabación de video automática
+                if (autoRecordCheckbox.checked && !isVideoRecording) {
+                    startAutoVideoRecording();
+                }
+                
+                clearTimeout(zoomResetTimeout);
+                zoomResetTimeout = setTimeout(() => {
+                    zoomManager.setTargetZoom(5);
+                    updateStatus('Zoom restaurado a 5x - Monitoreando...', 'active');
+                }, ZOOM_HOLD_DURATION);
+            }
+        } else {
+            motionDetected = false;
+        }
+
+    } catch (error) {
+        logDebug(`Error en detección de movimiento: ${error.message}`);
+    }
+}
+
+// Funciones de control
+function pauseDetection() {
+    isPaused = true;
+    updateStatus('Sistema pausado', 'waiting');
+    logDebug('Detección pausada');
+}
+
+function resumeDetection() {
+    isPaused = false;
+    updateStatus('Sistema activo - Monitoreando...', 'active');
+    logDebug('Detección reanudada');
+}
+
+// Función de actualización de estado mejorada
+function updateStatus(message, type) {
+    if (movementStatus) {
+        movementStatus.textContent = message;
+        movementStatus.className = `status-${type}`;
+        
+        // Log del cambio de estado
+        logDebug(`📊 Estado: ${message}`);
+    }
+}
+// Función para obtener información de dispositivos disponibles (debugging)
+async function listCameraDevices() {
+    try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(device => device.kind === 'videoinput');
+        
+        logDebug(`📹 Dispositivos de video encontrados: ${videoDevices.length}`);
+        videoDevices.forEach((device, index) => {
+            logDebug(`  ${index + 1}. ${device.label || `Cámara ${index + 1}`} (${device.deviceId.substr(0, 8)}...)`);
         });
+        
+        return videoDevices;
+    } catch (error) {
+        logDebug(`❌ Error listando dispositivos: ${error.message}`);
+        return [];
+    }
+}
+
+function updatePersonCount(count) {
+    if (personCountDisplay) {
+        personCountDisplay.textContent = count;
+    }
+}
+
+function updateMotionLevel(level) {
+    if (motionLevelDisplay) {
+        motionLevelDisplay.textContent = `${level}%`;
+    }
+}
+
+// Funciones de control mejoradas
+async function capturePhoto() {
+    if (!photoCapture) {
+        logDebug("❌ PhotoCapture no inicializado");
+        return;
+    }
+    
+    logDebug("🔘 Captura manual solicitada");
+    await photoCapture.startCapturing('Captura manual');
+}
+
+function clearPhotos() {
+    if (photoCapture) {
+        photoCapture.clearAllPhotos();
+    } else {
+        // Fallback directo
+        photosDiv.innerHTML = '';
+        logDebug('🗑️ Fotos eliminadas (fallback)');
+    }
+}
+// Función para descargar todas las fotos como ZIP (opcional)
+async function downloadAllPhotos() {
+    if (!photoCapture || photoCapture.photoCount === 0) {
+        logDebug("❌ No hay fotos para descargar");
+        return;
+    }
+    
+    const photos = document.querySelectorAll('.captured-photo');
+    if (photos.length === 0) {
+        logDebug("❌ No se encontraron fotos en la galería");
+        return;
+    }
+    
+    logDebug(`📦 Descargando ${photos.length} fotos individualmente...`);
+    
+    // Descargar cada foto individualmente
+    photos.forEach((img, index) => {
+        setTimeout(() => {
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const filename = `foto_galeria_${index + 1}_${timestamp}`;
+            photoCapture.downloadPhoto(img.src, filename);
+        }, index * 200); // Pequeño delay entre descargas
+    });
+}
+// Función para capturar foto de alta calidad
+async function captureHighQualityPhoto() {
+    if (!video.videoWidth || !video.videoHeight) {
+        logDebug("❌ Video no disponible para captura de alta calidad");
+        return;
+    }
+    
+    try {
+        // Crear canvas de alta resolución
+        const hqCanvas = document.createElement('canvas');
+        const hqCtx = hqCanvas.getContext('2d');
+        
+        // Usar resolución completa del video
+        hqCanvas.width = video.videoWidth;
+        hqCanvas.height = video.videoHeight;
+        
+        // Capturar frame completo sin zoom
+        hqCtx.drawImage(video, 0, 0);
+        
+        // Generar imagen de alta calidad
+        const hqPhotoData = hqCanvas.toDataURL('image/png', 1.0);
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const filename = `foto_hq_${timestamp}`;
+        
+        // Descargar inmediatamente
+        const link = document.createElement('a');
+        link.href = hqPhotoData;
+        link.download = `${filename}.png`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        logDebug(`📸 Foto de alta calidad capturada: ${filename}.png`);
+        
+    } catch (error) {
+        logDebug(`❌ Error en captura de alta calidad: ${error.message}`);
+    }
+}
+// Agregar controles de descarga al DOM
+function addDownloadControls() {
+    const controlsDiv = document.querySelector('.controls');
+    if (!controlsDiv) return;
+ 
+    
+    // Botón para alternar descarga automática
+    const autoDownloadBtn = document.createElement('button');
+    autoDownloadBtn.textContent = '💾 Descarga Auto: ON';
+    autoDownloadBtn.className = 'btn-secondary';
+    autoDownloadBtn.onclick = () => {
+        if (photoCapture) {
+            photoCapture.autoDownload = !photoCapture.autoDownload;
+            autoDownloadBtn.textContent = `💾 Descarga Auto: ${photoCapture.autoDownload ? 'ON' : 'OFF'}`;
+            autoDownloadBtn.className = photoCapture.autoDownload ? 'btn-primary' : 'btn-secondary';
+        }
+    };
+    
+    // Botón para descargar todas las fotos
+    const downloadAllBtn = document.createElement('button');
+    downloadAllBtn.textContent = '📦 Descargar Todas';
+    downloadAllBtn.className = 'btn-secondary';
+    downloadAllBtn.onclick = downloadAllPhotos;
+    
+    // Botón para foto de alta calidad
+    const hqPhotoBtn = document.createElement('button');
+    hqPhotoBtn.textContent = '📸 Foto Alta Calidad';
+    hqPhotoBtn.className = 'btn-secondary';
+    hqPhotoBtn.onclick = captureHighQualityPhoto;
+    
+    // Agregar botones antes del botón de limpiar fotos
+    const clearBtn = controlsDiv.querySelector('button[onclick*="clearPhotos"]');
+    if (clearBtn) {
+        controlsDiv.insertBefore(autoDownloadBtn, clearBtn);
+        controlsDiv.insertBefore(downloadAllBtn, clearBtn);
+        controlsDiv.insertBefore(hqPhotoBtn, clearBtn);
+    } else {
+        // Si no encuentra el botón, agregar al final
+        controlsDiv.appendChild(autoDownloadBtn);
+        controlsDiv.appendChild(downloadAllBtn);
+        controlsDiv.appendChild(hqPhotoBtn);
+    }
+}
+// Inicializar controles de descarga cuando el DOM esté listo
+document.addEventListener('DOMContentLoaded', function() {
+    // Agregar controles después de un breve delay
+    setTimeout(addDownloadControls, 500);
+});
+
+
+function stopAllProcesses() {
+    isRecording = false;
+    isPaused = false;
+    
+    if (isVideoRecording) {
+        stopVideoRecording();
+    }
+    
+    if (detectionInterval) {
+        clearInterval(detectionInterval);
+        detectionInterval = null;
+    }
+    
+    if (renderInterval) {
+        clearInterval(renderInterval);
+        renderInterval = null;
+    }
+    
+    if (motionDetectionInterval) {
+        clearInterval(motionDetectionInterval);
+        motionDetectionInterval = null;
+    }
+    
+    if (zoomResetTimeout) {
+        clearTimeout(zoomResetTimeout);
+        zoomResetTimeout = null;
+    }
+    
+    if (video.srcObject) {
+        const tracks = video.srcObject.getTracks();
+        tracks.forEach(track => track.stop());
+        video.srcObject = null;
+    }
+    
+    if (audioStream) {
+        audioStream.getTracks().forEach(track => track.stop());
+        audioStream = null;
+    }
+    
+    if (zoomManager) {
+        zoomManager.setTargetZoom(5);
+    }
+    
+    if (ctx) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+    
+    updateStatus('Sistema detenido', 'waiting');
+    updatePersonCount(0);
+    updateMotionLevel(0);
+    
+    logDebug("Sistema detenido completamente");
+}
+
+// Configurar responsividad
+function setupCanvasResponsiveness() {
+    const resizeCanvas = () => {
+        if (canvas) {
+            canvas.width = canvas.offsetWidth;
+            canvas.height = canvas.offsetHeight;
+        }
+    };
+    
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+}
+
+// Inicialización mejorada
+document.addEventListener('DOMContentLoaded', function() {
+    logDebug("🚀 Sistema de detección automática iniciando...");
+    setupCanvasResponsiveness();
+    
+    // Configurar controles
+    motionThreshold = 50 - (motionSensitivitySlider.value * 4);
+    
+    // Verificar compatibilidad primero
+    if (!checkBrowserCompatibility()) {
+        return;
+    }
+    
+    // Listar dispositivos de cámara disponibles (para debugging)
+    listCameraDevices();
+    
+    updateStatus('Preparando sistema...', 'waiting');
+    
+    // Botón manual para iniciar si hay problemas
+    const startButton = document.createElement('button');
+    startButton.textContent = '🎥 Iniciar Cámara Manualmente';
+    startButton.className = 'btn-primary';
+    startButton.style.marginBottom = '10px';
+    startButton.onclick = () => {
+        logDebug("🔘 Inicio manual solicitado por el usuario");
+        startVideo();
+        startButton.style.display = 'none';
+    };
+    
+    // Agregar botón al contenedor de controles
+    const controlsDiv = document.querySelector('.controls');
+    if (controlsDiv) {
+        controlsDiv.insertBefore(startButton, controlsDiv.firstChild);
+    }
+    
+    // Intentar inicio automático después de un retraso
+    setTimeout(() => {
+        logDebug("⏰ Iniciando cámara automáticamente...");
+        startVideo().then(() => {
+            startButton.style.display = 'none';
+        }).catch(() => {
+            logDebug("🔘 Inicio automático falló, usar botón manual");
+            updateStatus('❌ Inicio automático falló. Usa el botón "Iniciar Cámara Manualmente"', 'error');
+        });
+    }, 1000);
+});
+// Manejo mejorado de errores globales
+window.addEventListener('error', function(event) {
+    if (event.error && !event.error.message.includes('zoomManager')) {
+        logDebug(`❌ Error global: ${event.error.message}`);
+    }
+});
+
+window.addEventListener('unhandledrejection', function(event) {
+    logDebug(`❌ Promise rechazada: ${event.reason}`);
+});
+
+// Limpieza al salir
+window.addEventListener('beforeunload', function(event) {
+    if (isRecording || isVideoRecording) {
+        stopAllProcesses();
+    }
+});
     </script>
 </body>
 </html>
