@@ -62,6 +62,50 @@
             object-fit: contain;
         }
 
+        .photos-inline-section {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 20px;
+            margin-top: 20px;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .photos-inline-section h3 {
+            color: #333;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #667eea;
+            font-size: 1.2em;
+        }
+
+        .photos-inline-section #photos {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+            gap: 15px;
+            max-height: 200px;
+            overflow-y: auto;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+
+        .photos-inline-section .captured-photo {
+            width: 100%;
+            height: 90px;
+            object-fit: cover;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease;
+            cursor: pointer;
+        }
+
+        .photos-inline-section .captured-photo:hover {
+            transform: scale(1.1);
+            z-index: 10;
+        }
+
         .controls {
             background: #f8f9fa;
             padding: 25px;
@@ -245,37 +289,21 @@
             font-size: 0.85em;
         }
 
-        .photos-section {
-            grid-column: 1 / -1;
+        #recording-status.recording {
+            color: #dc3545;
+            font-weight: bold;
+            animation: pulse 1s infinite;
         }
 
-        .photos-section h3 {
-            color: #333;
-            margin-bottom: 20px;
-            padding-bottom: 10px;
-            border-bottom: 2px solid #667eea;
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
         }
 
-        #photos {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-            gap: 20px;
-            max-height: 400px;
-            overflow-y: auto;
-            padding: 10px;
-            background: #f8f9fa;
-            border-radius: 10px;
-        }
-
-        .captured-photo {
-            width: 100%;
-            border-radius: 10px;
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-            transition: transform 0.3s ease;
-        }
-
-        .captured-photo:hover {
-            transform: scale(1.05);
+        #record-btn.recording {
+            background: #dc3545;
+            animation: pulse 1s infinite;
         }
 
         .debug-section {
@@ -354,6 +382,12 @@
             <div class="video-section">
                 <video id="video" autoplay muted playsinline></video>
                 <canvas id="canvas-display"></canvas>
+                
+                <!-- NUEVA UBICACIÓN DE LA SECCIÓN DE FOTOS -->
+                <div class="photos-inline-section">
+                    <h3>📷 Fotos Capturadas</h3>
+                    <div id="photos"></div>
+                </div>
             </div>
             
             <div class="controls">
@@ -384,9 +418,15 @@
                     </div>
                 </div>
                 <div class="status-item">
-    <strong>Servidor</strong>
-    <div id="server-status">Verificando...</div>
-</div>
+                    <strong>Servidor</strong>
+                    <div id="server-status">Verificando...</div>
+                </div>
+                
+                <!-- NUEVO: Estado de grabación de video -->
+                <div class="status-item">
+                    <strong>Grabación</strong>
+                    <div id="recording-status">Inactivo</div>
+                </div>
 
                 <div class="control-group">
                     <label for="photo-count">Número de fotos por detección:</label>
@@ -438,19 +478,21 @@
                         <input type="checkbox" id="auto-capture" checked>
                         <label for="auto-capture">Captura automática</label>
                     </div>
+                    <!-- NUEVO: Checkbox para descarga automática -->
+                    <div class="checkbox-container">
+                        <input type="checkbox" id="auto-download" checked>
+                        <label for="auto-download">Descarga automática</label>
+                    </div>
                 </div>
 
                 <button onclick="startVideo()" class="btn-primary">🎬 Iniciar Cámara</button>
                 <button onclick="testZoom()" class="btn-secondary">🔍 Probar Zoom</button>
                 <button onclick="capturePhoto()" class="btn-secondary">📸 Capturar Foto</button>
+                <!-- NUEVO: Botón para grabar video -->
+                <button onclick="toggleVideoRecording()" class="btn-secondary" id="record-btn">🎥 Grabar Video (10s)</button>
                 <button onclick="clearPhotos()" class="btn-secondary">🗑️ Limpiar Fotos</button>
                 <button onclick="stopAllProcesses()" class="btn-danger">⏹️ Detener Todo</button>
             </div>
-        </div>
-
-        <div class="photos-section">
-            <h3>📷 Fotos Capturadas</h3>
-            <div id="photos"></div>
         </div>
 
         <div class="debug-section">
@@ -522,6 +564,12 @@
         let motionThreshold = 30;
         let motionDetected = false;
         let lastMotionTime = 0;
+
+        // Variables para grabación de video
+        let mediaRecorder;
+        let recordedChunks = [];
+        let isVideoRecording = false;
+        let recordingTimeout;
 
         // Configuración
         const ZOOM_DURATION = 10000; // 10 segundos en zoom normal después de detectar persona
@@ -812,162 +860,188 @@
         }
 
         // Clase mejorada para captura de fotos con guardado en servidor
-class PhotoCapture {
-    constructor() {
-        this.isCapturing = false;
-        this.photoCount = 0;
-        this.maxPhotos = 3;
-        this.captureReason = '';
-        this.serverUrl = 'http://localhost:5000'; // URL del servidor Flask
-    }
+        class PhotoCapture {
+            constructor() {
+                this.isCapturing = false;
+                this.photoCount = 0;
+                this.maxPhotos = 3;
+                this.captureReason = '';
+                this.serverUrl = 'http://localhost:5000'; // URL del servidor Flask
+            }
 
-    async startCapturing(reason = 'Detección automática') {
-        if (this.isCapturing) return;
-        
-        this.isCapturing = true;
-        this.captureReason = reason;
-        this.maxPhotos = parseInt(photoCountSlider.value);
-        
-        logDebug(`Iniciando captura de ${this.maxPhotos} fotos por: ${reason}`);
-        
-        for (let i = 0; i < this.maxPhotos; i++) {
-            await this.capturePhoto();
-            if (i < this.maxPhotos - 1) {
-                await this.delay(500); // Esperar 500ms entre fotos
+            async startCapturing(reason = 'Detección automática') {
+                if (this.isCapturing) return;
+                
+                this.isCapturing = true;
+                this.captureReason = reason;
+                this.maxPhotos = parseInt(photoCountSlider.value);
+                
+                logDebug(`Iniciando captura de ${this.maxPhotos} fotos por: ${reason}`);
+                
+                for (let i = 0; i < this.maxPhotos; i++) {
+                    await this.capturePhoto();
+                    if (i < this.maxPhotos - 1) {
+                        await this.delay(500); // Esperar 500ms entre fotos
+                    }
+                }
+                
+                this.isCapturing = false;
+                logDebug(`Captura completada: ${this.maxPhotos} fotos`);
+            }
+
+            async capturePhoto() {
+                if (!zoomManager) return;
+
+                try {
+                    const photoData = zoomManager.captureCurrentFrame();
+                    const timestamp = new Date().toLocaleString();
+                    
+                    // Crear elemento de imagen para mostrar en el frontend
+                    const img = document.createElement('img');
+                    img.src = photoData;
+                    img.className = 'captured-photo';
+                    img.title = `${this.captureReason} - ${timestamp}`;
+                    img.alt = `Foto capturada el ${timestamp}`;
+                    
+                    // Hacer la imagen clickeable para verla en tamaño completo
+                    img.onclick = () => {
+                        window.open(photoData, '_blank');
+                    };
+                    
+                    // Agregar al contenedor de fotos
+                    photosDiv.appendChild(img);
+                    
+                    // Descarga automática si está habilitada
+                    const autoDownloadCheckbox = document.getElementById('auto-download');
+                    if (autoDownloadCheckbox && autoDownloadCheckbox.checked) {
+                        this.downloadPhoto(photoData, this.captureReason, timestamp);
+                    }
+                    
+                    // Intentar guardar en el servidor
+                    const saveResult = await this.saveToServer(photoData, this.captureReason, timestamp);
+                    
+                    if (saveResult.success) {
+                        logDebug(`Foto guardada en servidor: ${saveResult.filename}`);
+                        // Agregar indicador visual de que se guardó
+                        img.style.border = '2px solid #28a745';
+                        img.title += ' ✅ Guardada en servidor';
+                    } else {
+                        logDebug(`Error guardando en servidor: ${saveResult.error}`);
+                        // Agregar indicador visual de error
+                        img.style.border = '2px solid #dc3545';
+                        img.title += ' ❌ No se pudo guardar';
+                    }
+                    
+                    this.photoCount++;
+                    totalPhotosCaptured++;
+                    photoCountDisplay.textContent = totalPhotosCaptured;
+                    
+                    // Auto-scroll para mostrar la última foto
+                    photosDiv.scrollLeft = photosDiv.scrollWidth;
+                    
+                    logDebug(`Foto capturada: ${this.captureReason} - ${timestamp}`);
+                    
+                } catch (error) {
+                    logDebug(`Error capturando foto: ${error.message}`);
+                }
+            }
+
+            downloadPhoto(dataUrl, reason, timestamp) {
+                const link = document.createElement('a');
+                const fileName = `${reason.replace(/\s+/g, '_')}_${timestamp.replace(/[/:]/g, '-')}.png`;
+                link.download = fileName;
+                link.href = dataUrl;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                logDebug(`Foto descargada: ${fileName}`);
+            }
+
+            async saveToServer(imageData, reason, timestamp) {
+                try {
+                    const response = await fetch(`${this.serverUrl}/save-photo`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            image: imageData,
+                            reason: reason,
+                            timestamp: timestamp
+                        })
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    
+                    const result = await response.json();
+                    return result;
+                    
+                } catch (error) {
+                    logDebug(`Error conectando con servidor: ${error.message}`);
+                    return { success: false, error: error.message };
+                }
+            }
+
+            async checkServerHealth() {
+                try {
+                    const response = await fetch(`${this.serverUrl}/health`);
+                    const result = await response.json();
+                    
+                    if (result.status === 'healthy') {
+                        logDebug(`Servidor conectado ✅ - ${result.photos_count} fotos guardadas`);
+                        return true;
+                    }
+                    
+                } catch (error) {
+                    logDebug(`Servidor no disponible: ${error.message}`);
+                    return false;
+                }
+            }
+
+            async loadSavedPhotos() {
+                try {
+                    const response = await fetch(`${this.serverUrl}/get-photos`);
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        logDebug(`Cargadas ${result.total} fotos del servidor`);
+                        // Aquí podrías mostrar las fotos guardadas si quieres
+                        return result.photos;
+                    }
+                    
+                } catch (error) {
+                    logDebug(`Error cargando fotos del servidor: ${error.message}`);
+                    return [];
+                }
+            }
+
+            delay(ms) {
+                return new Promise(resolve => setTimeout(resolve, ms));
+            }
+
+            clearAllPhotos() {
+                photosDiv.innerHTML = '';
+                this.photoCount = 0;
+                totalPhotosCaptured = 0;
+                photoCountDisplay.textContent = '0';
+                logDebug('Fotos del frontend eliminadas (las del servidor permanecen)');
             }
         }
-        
-        this.isCapturing = false;
-        logDebug(`Captura completada: ${this.maxPhotos} fotos`);
-    }
 
-    async capturePhoto() {
-        if (!zoomManager) return;
-
-        try {
-            const photoData = zoomManager.captureCurrentFrame();
-            const timestamp = new Date().toLocaleString();
-            
-            // Crear elemento de imagen para mostrar en el frontend
-            const img = document.createElement('img');
-            img.src = photoData;
-            img.className = 'captured-photo';
-            img.title = `${this.captureReason} - ${timestamp}`;
-            img.alt = `Foto capturada el ${timestamp}`;
-            
-            // Agregar al contenedor de fotos
-            photosDiv.appendChild(img);
-            
-            // Intentar guardar en el servidor
-            const saveResult = await this.saveToServer(photoData, this.captureReason, timestamp);
-            
-            if (saveResult.success) {
-                logDebug(`Foto guardada en servidor: ${saveResult.filename}`);
-                // Agregar indicador visual de que se guardó
-                img.style.border = '2px solid #28a745';
-                img.title += ' ✅ Guardada en servidor';
-            } else {
-                logDebug(`Error guardando en servidor: ${saveResult.error}`);
-                // Agregar indicador visual de error
-                img.style.border = '2px solid #dc3545';
-                img.title += ' ❌ No se pudo guardar';
+        // Función para verificar conexión con servidor al inicializar
+        async function initializePhotoService() {
+            if (photoCapture) {
+                const serverHealthy = await photoCapture.checkServerHealth();
+                const serverStatus = document.getElementById('server-status');
+                
+                if (serverStatus) {
+                    serverStatus.textContent = serverHealthy ? 'Conectado ✅' : 'Desconectado ❌';
+                    serverStatus.className = serverHealthy ? 'server-connected' : 'server-disconnected';
+                }
             }
-            
-            this.photoCount++;
-            totalPhotosCaptured++;
-            photoCountDisplay.textContent = totalPhotosCaptured;
-            
-            logDebug(`Foto capturada: ${this.captureReason} - ${timestamp}`);
-            
-        } catch (error) {
-            logDebug(`Error capturando foto: ${error.message}`);
         }
-    }
-
-    async saveToServer(imageData, reason, timestamp) {
-        try {
-            const response = await fetch(`${this.serverUrl}/save-photo`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    image: imageData,
-                    reason: reason,
-                    timestamp: timestamp
-                })
-            });
-            
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            
-            const result = await response.json();
-            return result;
-            
-        } catch (error) {
-            logDebug(`Error conectando con servidor: ${error.message}`);
-            return { success: false, error: error.message };
-        }
-    }
-
-    async checkServerHealth() {
-        try {
-            const response = await fetch(`${this.serverUrl}/health`);
-            const result = await response.json();
-            
-            if (result.status === 'healthy') {
-                logDebug(`Servidor conectado ✅ - ${result.photos_count} fotos guardadas`);
-                return true;
-            }
-            
-        } catch (error) {
-            logDebug(`Servidor no disponible: ${error.message}`);
-            return false;
-        }
-    }
-
-    async loadSavedPhotos() {
-        try {
-            const response = await fetch(`${this.serverUrl}/get-photos`);
-            const result = await response.json();
-            
-            if (result.success) {
-                logDebug(`Cargadas ${result.total} fotos del servidor`);
-                // Aquí podrías mostrar las fotos guardadas si quieres
-                return result.photos;
-            }
-            
-        } catch (error) {
-            logDebug(`Error cargando fotos del servidor: ${error.message}`);
-            return [];
-        }
-    }
-
-    delay(ms) {
-        return new Promise(resolve => setTimeout(resolve, ms));
-    }
-
-    clearAllPhotos() {
-        photosDiv.innerHTML = '';
-        this.photoCount = 0;
-        totalPhotosCaptured = 0;
-        photoCountDisplay.textContent = '0';
-        logDebug('Fotos del frontend eliminadas (las del servidor permanecen)');
-    }
-}
-// Función para verificar conexión con servidor al inicializar
-async function initializePhotoService() {
-    if (photoCapture) {
-        const serverHealthy = await photoCapture.checkServerHealth();
-        const serverStatus = document.getElementById('server-status');
-        
-        if (serverStatus) {
-            serverStatus.textContent = serverHealthy ? 'Servidor: Conectado ✅' : 'Servidor: Desconectado ❌';
-            serverStatus.className = serverHealthy ? 'server-connected' : 'server-disconnected';
-        }
-    }
-}
 
         // Instancias de las clases
         let motionDetector;
@@ -989,6 +1063,102 @@ async function initializePhotoService() {
             if (lines.length > 100) {
                 debugConsole.textContent = lines.slice(-100).join('\n');
             }
+        }
+
+        // Función para alternar grabación de video
+        async function toggleVideoRecording() {
+            if (!isVideoRecording) {
+                startVideoRecording();
+            } else {
+                stopVideoRecording();
+            }
+        }
+
+        // Función para iniciar grabación de video
+        async function startVideoRecording() {
+            if (!video.srcObject) {
+                logDebug("No hay stream de video activo");
+                return;
+            }
+
+            try {
+                // Crear un stream que incluya el canvas con las detecciones
+                const canvasStream = canvas.captureStream(30); // 30 FPS
+                
+                // Configurar el grabador
+                const options = {
+                    mimeType: 'video/webm;codecs=vp8,opus'
+                };
+                
+                mediaRecorder = new MediaRecorder(canvasStream, options);
+                recordedChunks = [];
+                
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        recordedChunks.push(event.data);
+                    }
+                };
+                
+                mediaRecorder.onstop = () => {
+                    const blob = new Blob(recordedChunks, { type: 'video/webm' });
+                    downloadVideo(blob);
+                    logDebug("Video guardado exitosamente");
+                };
+                
+                // Iniciar grabación
+                mediaRecorder.start();
+                isVideoRecording = true;
+                
+                // Actualizar UI
+                document.getElementById('recording-status').textContent = 'Grabando...';
+                document.getElementById('recording-status').classList.add('recording');
+                document.getElementById('record-btn').textContent = '⏹️ Detener Grabación';
+                document.getElementById('record-btn').classList.add('recording');
+                
+                logDebug("Grabación de video iniciada (10 segundos)");
+                
+                // Detener automáticamente después de 10 segundos
+                recordingTimeout = setTimeout(() => {
+                    stopVideoRecording();
+                }, 10000);
+                
+            } catch (error) {
+                logDebug(`Error iniciando grabación: ${error.message}`);
+            }
+        }
+
+        // Función para detener grabación de video
+        function stopVideoRecording() {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+                isVideoRecording = false;
+                
+                // Limpiar timeout si se detiene manualmente
+                if (recordingTimeout) {
+                    clearTimeout(recordingTimeout);
+                }
+                
+                // Actualizar UI
+                document.getElementById('recording-status').textContent = 'Inactivo';
+                document.getElementById('recording-status').classList.remove('recording');
+                document.getElementById('record-btn').textContent = '🎥 Grabar Video (10s)';
+                document.getElementById('record-btn').classList.remove('recording');
+                
+                logDebug("Grabación de video detenida");
+            }
+        }
+
+        // Función para descargar video
+        function downloadVideo(blob) {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            a.href = url;
+            a.download = `deteccion_video_${timestamp}.webm`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
         }
 
         // Función principal para iniciar el video
@@ -1036,6 +1206,9 @@ async function initializePhotoService() {
                 
                 // Inicializar capturador de fotos
                 photoCapture = new PhotoCapture();
+                
+                // Verificar conexión con servidor
+                await initializePhotoService();
                 
                 logDebug("Todos los detectores inicializados correctamente");
                 
@@ -1228,6 +1401,11 @@ async function initializePhotoService() {
         function stopAllProcesses() {
             isRecording = false;
             
+            // Detener grabación de video si está activa
+            if (isVideoRecording) {
+                stopVideoRecording();
+            }
+            
             // Detener intervalos
             if (detectionInterval) {
                 clearInterval(detectionInterval);
@@ -1325,7 +1503,3 @@ async function initializePhotoService() {
     </script>
 </body>
 </html>
-
-
-
-                
