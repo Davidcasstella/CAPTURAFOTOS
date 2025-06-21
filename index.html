@@ -464,6 +464,18 @@
                         <span id="detection-confidence-value" class="slider-value">50%</span>
                     </div>
                 </div>
+                                    <!-- Agregar estos controles después de los sliders existentes -->
+                    <div class="control-group">
+                        <label for="initial-zoom">Zoom Inicial:</label>
+                        <input type="range" id="initial-zoom" min="1" max="10" step="0.5" value="3">
+                        <span id="initial-zoom-value">3x</span>
+                    </div>
+
+                    <div class="control-group">
+                        <label for="video-duration">Duración Video (segundos):</label>
+                        <input type="range" id="video-duration" min="5" max="30" step="1" value="10">
+                        <span id="video-duration-value">10s</span>
+                    </div>
 
                 <div class="control-group">
                     <label>Opciones de Detección:</label>
@@ -531,6 +543,12 @@ const detectionConfidenceValue = document.getElementById('detection-confidence-v
 const loadingOverlay = document.getElementById('loading-overlay');
 const countdownDisplay = document.getElementById('countdown-display');
 
+// 2. AGREGAR NUEVOS ELEMENTOS DEL DOM (después de los elementos existentes)
+const initialZoomSlider = document.getElementById('initial-zoom');
+const initialZoomValue = document.getElementById('initial-zoom-value');
+const videoDurationSlider = document.getElementById('video-duration');
+const videoDurationValue = document.getElementById('video-duration-value');
+
 // Elementos de estadísticas
 const personCountDisplay = document.getElementById('person-count');
 const motionLevelDisplay = document.getElementById('motion-level');
@@ -558,6 +576,8 @@ let lastDetectionTime = 0;
 let zoomResetTimeout;
 let totalVideosCaptured = 0;
 let isPaused = false;
+let currentFacingMode = "environment"; // Solo cámara trasera// "user" para frontal, "environment" para trasera
+window.personCurrentlyDetected = false;
 
 // Variables para detección de movimiento
 let previousFrameData = null;
@@ -578,12 +598,12 @@ let initialZoom = 3; // Zoom inicial configurable
 let videoDuration = 10000; // Duración de video configurable
 
 // Configuración
-const ZOOM_HOLD_DURATION = 10000; // 10 segundos en zoom x1
+const ZOOM_HOLD_DURATION = 8000; // 10 segundos en zoom x1
 const VIDEO_DURATION = 10000; // 10 segundos de grabación
-const DETECTION_INTERVAL = 1000; // Verificar detección cada segundo
-const MOTION_DETECTION_INTERVAL = 200; // Verificar movimiento cada 200ms
+const DETECTION_INTERVAL = 500; // Verificar detección cada segundo
+const MOTION_DETECTION_INTERVAL = 100; // Verificar movimiento cada 200ms
 const RENDER_FPS = 30; // FPS para renderizado del canvas
-const MOTION_COOLDOWN = 3000; // 3 segundos de cooldown entre detecciones
+const MOTION_COOLDOWN = 1500; // 3 segundos de cooldown entre detecciones
 
 // Instancias de las clases
 let zoomManager;
@@ -603,6 +623,19 @@ motionSensitivitySlider.addEventListener('input', () => {
 
 detectionConfidenceSlider.addEventListener('input', () => {
     detectionConfidenceValue.textContent = detectionConfidenceSlider.value + '%';
+});
+// 3. AGREGAR EVENT LISTENERS PARA LOS NUEVOS SLIDERS (después de los event listeners existentes)
+initialZoomSlider.addEventListener('input', () => {
+    initialZoom = parseFloat(initialZoomSlider.value);
+    initialZoomValue.textContent = initialZoom + 'x';
+    if (zoomManager) {
+        zoomManager.setTargetZoom(initialZoom);
+    }
+});
+
+videoDurationSlider.addEventListener('input', () => {
+    videoDuration = parseInt(videoDurationSlider.value) * 1000; // Convertir a ms
+    videoDurationValue.textContent = videoDurationSlider.value + 's';
 });
 
 // Clase para detección de movimiento
@@ -676,21 +709,23 @@ class MotionDetector {
         this.motionThreshold = threshold;
     }
 }
-
-// Clase para manejar el zoom
+// 5. MODIFICAR ZoomManager para mejorar rendimiento con cámara trasera
 class ZoomManager {
     constructor(videoElement, canvasElement, contextElement) {
         this.video = videoElement;
         this.canvas = canvasElement;
         this.ctx = contextElement;
-        this.currentZoom = 5; // Iniciar en zoom 5x
-        this.targetZoom = 5;
-        this.transitionSpeed = 0.1;
+        this.currentZoom = 3; // Zoom inicial para cámara trasera
+        this.targetZoom = 3;
+        this.transitionSpeed = 0.15; // Transición más rápida para trasera
+        this.maxZoom = 8; // Zoom máximo para cámara trasera
+        this.minZoom = 1; // Zoom mínimo
     }
 
     setTargetZoom(zoom) {
-        this.targetZoom = zoom;
-        logDebug(`Zoom objetivo establecido: ${zoom}x`);
+        // Limitar zoom dentro del rango válido
+        this.targetZoom = Math.max(this.minZoom, Math.min(this.maxZoom, zoom));
+        logDebug(`Zoom objetivo establecido: ${this.targetZoom}x (cámara trasera)`);
     }
 
     updateZoom() {
@@ -707,7 +742,7 @@ class ZoomManager {
     }
 
     updateZoomInfo() {
-        zoomInfo.textContent = `Zoom: ${this.currentZoom.toFixed(1)}x`;
+        zoomInfo.textContent = `Zoom: ${this.currentZoom.toFixed(1)}x (Trasera)`;
     }
 
     renderFrame() {
@@ -728,6 +763,7 @@ class ZoomManager {
         let drawWidth, drawHeight;
         let sourceX, sourceY, sourceWidth, sourceHeight;
 
+        // Cálculo optimizado para cámara trasera
         sourceWidth = this.video.videoWidth / this.currentZoom;
         sourceHeight = this.video.videoHeight / this.currentZoom;
         sourceX = (this.video.videoWidth - sourceWidth) / 2;
@@ -756,27 +792,6 @@ class ZoomManager {
         } catch (error) {
             // Silenciar errores temporales
         }
-    }
-
-    captureCurrentFrame() {
-        const captureCanvas = document.createElement('canvas');
-        const captureCtx = captureCanvas.getContext('2d');
-        
-        captureCanvas.width = this.video.videoWidth;
-        captureCanvas.height = this.video.videoHeight;
-
-        const sourceWidth = this.video.videoWidth / this.currentZoom;
-        const sourceHeight = this.video.videoHeight / this.currentZoom;
-        const sourceX = (this.video.videoWidth - sourceWidth) / 2;
-        const sourceY = (this.video.videoHeight - sourceHeight) / 2;
-
-        captureCtx.drawImage(
-            this.video,
-            sourceX, sourceY, sourceWidth, sourceHeight,
-            0, 0, captureCanvas.width, captureCanvas.height
-        );
-
-        return captureCanvas.toDataURL('image/png');
     }
 }
 
@@ -873,7 +888,7 @@ class PhotoCapture {
         for (let i = 0; i < this.maxPhotos; i++) {
             await this.capturePhoto();
             if (i < this.maxPhotos - 1) {
-                await this.delay(800); // Pausa más larga entre fotos
+                await this.delay(100); // Pausa más larga entre fotos
             }
         }
         
@@ -1026,34 +1041,28 @@ function logDebug(message) {
     }
 }
 
-// Función para iniciar grabación de video automática
+// 6. MODIFICAR LA FUNCIÓN DE GRABACIÓN DE VIDEO
 async function startAutoVideoRecording() {
     if (!video.srcObject || isVideoRecording) {
         return;
     }
 
     try {
-        // Crear streams con audio
         const videoStream = canvas.captureStream(30);
-        
-        // Intentar obtener audio
         let combinedStream;
+        
         try {
             audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            
-            // Combinar video del canvas con audio del micrófono
             combinedStream = new MediaStream([
                 ...videoStream.getVideoTracks(),
                 ...audioStream.getAudioTracks()
             ]);
-            
             logDebug("Audio capturado exitosamente");
         } catch (audioError) {
-            logDebug("No se pudo capturar audio, grabando solo video");
+            logDebug("Grabando solo video");
             combinedStream = videoStream;
         }
         
-        // Intentar usar codecs compatibles con MP4
         const mimeTypes = [
             'video/mp4;codecs=h264,aac',
             'video/webm;codecs=vp9,opus',
@@ -1061,23 +1070,15 @@ async function startAutoVideoRecording() {
             'video/webm'
         ];
         
-        let selectedMimeType = null;
-        for (const mimeType of mimeTypes) {
-            if (MediaRecorder.isTypeSupported(mimeType)) {
-                selectedMimeType = mimeType;
-                break;
-            }
-        }
+        let selectedMimeType = mimeTypes.find(type => MediaRecorder.isTypeSupported(type));
         
         if (!selectedMimeType) {
             throw new Error('No se encontró un codec compatible');
         }
         
-        logDebug(`Usando codec: ${selectedMimeType}`);
-        
         const options = {
             mimeType: selectedMimeType,
-            videoBitsPerSecond: 2500000 // 2.5 Mbps para mejor calidad
+            videoBitsPerSecond: 2500000
         };
         
         mediaRecorder = new MediaRecorder(combinedStream, options);
@@ -1096,30 +1097,28 @@ async function startAutoVideoRecording() {
             });
             downloadVideo(blob, selectedMimeType.includes('mp4'));
             
-            // Limpiar streams de audio
             if (audioStream) {
                 audioStream.getTracks().forEach(track => track.stop());
                 audioStream = null;
             }
         };
         
-        // Iniciar grabación
         mediaRecorder.start();
         isVideoRecording = true;
         
-        // Actualizar UI
         document.getElementById('recording-status').textContent = 'Grabando...';
         document.getElementById('recording-status').classList.add('recording');
         
-        // Mostrar countdown
-        startCountdown(10);
+        // Usar duración configurable en lugar de fija
+        const durationSeconds = videoDuration / 1000;
+        startCountdown(durationSeconds);
         
-        logDebug("Grabación automática iniciada (10 segundos)");
+        logDebug(`Grabación automática iniciada (${durationSeconds} segundos)`);
         
-        // Detener automáticamente después de 10 segundos
+        // Detener automáticamente después del tiempo configurado
         recordingTimeout = setTimeout(() => {
             stopVideoRecording();
-        }, VIDEO_DURATION);
+        }, videoDuration); // Usar videoDuration configurable
         
     } catch (error) {
         logDebug(`Error iniciando grabación: ${error.message}`);
@@ -1219,6 +1218,42 @@ async function checkCameraPermissions() {
         return true; // Continuar de todos modos
     }
 }
+// Función para alternar entre cámara frontal y trasera
+/*async function toggleCamera() {
+    try {
+        logDebug("🔄 Cambiando cámara...");
+        updateStatus('Cambiando cámara...', 'waiting');
+        
+        // Detener procesos actuales
+        const wasRecording = isRecording;
+        if (wasRecording) {
+            stopAllProcesses();
+        }
+        
+        // Cambiar modo de cámara
+        currentFacingMode = currentFacingMode === "user" ? "environment" : "user";
+        
+        // Reiniciar con nueva cámara
+        await startVideo();
+        
+        // Reanudar procesos si estaban activos
+        if (wasRecording && zoomManager && motionDetector && personDetector) {
+            setTimeout(() => {
+                startAllProcesses();
+            }, 1000);
+        }
+        
+        const cameraType = currentFacingMode === "user" ? "frontal" : "trasera";
+        logDebug(`✅ Cámara ${cameraType} activada`);
+        
+    } catch (error) {
+        logDebug(`❌ Error cambiando cámara: ${error.message}`);
+        updateStatus('Error cambiando cámara', 'error');
+        
+        // Volver al modo anterior si falla
+        currentFacingMode = currentFacingMode === "user" ? "environment" : "user";
+    }
+}*/
 // Función simplificada para verificar compatibilidad
 function checkBrowserCompatibility() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -1234,108 +1269,104 @@ function checkBrowserCompatibility() {
 // Función principal corregida para iniciar el video
 async function startVideo() {
     try {
-        // Verificar compatibilidad del navegador primero
         if (!checkBrowserCompatibility()) {
             return;
         }
 
-        logDebug("🎥 Solicitando acceso a la cámara...");
-        updateStatus('Solicitando acceso a la cámara...', 'waiting');
+        logDebug("🎥 Solicitando acceso a la cámara trasera...");
+        updateStatus('Solicitando acceso a la cámara trasera...', 'waiting');
 
-        // Constraints más flexibles para mejor compatibilidad
+        // Constraints específicos para cámara trasera con zoom
         const constraints = {
             video: {
-                width: { ideal: 1280, min: 320 },
-                height: { ideal: 720, min: 240 },
-                facingMode: "user" // Empezar con cámara frontal que suele ser más compatible
+                width: { ideal: 1920, min: 1280 }, // Resolución más alta para mejor zoom
+                height: { ideal: 1080, min: 720 },
+                facingMode: { exact: "environment" }, // Forzar cámara trasera
+                focusMode: "continuous", // Enfoque continuo
+                zoom: true // Habilitar zoom si está disponible
             },
             audio: false
         };
 
-        logDebug("📋 Constraints configurados:", constraints);
+        logDebug("📋 Constraints para cámara trasera:", constraints);
 
-        // Solicitar acceso a la cámara
         const stream = await navigator.mediaDevices.getUserMedia(constraints);
         
-        logDebug("✅ Stream obtenido exitosamente");
+        logDebug("✅ Stream de cámara trasera obtenido exitosamente");
         
-        // Asignar el stream al elemento video
         video.srcObject = stream;
         
-        // Configurar eventos del video
+        // Verificar capacidades de zoom
+        const videoTrack = stream.getVideoTracks()[0];
+        const capabilities = videoTrack.getCapabilities();
+        
+        if (capabilities.zoom) {
+            logDebug(`📷 Zoom disponible: ${capabilities.zoom.min}x - ${capabilities.zoom.max}x`);
+        } else {
+            logDebug("⚠️ Zoom nativo no disponible, usando zoom digital");
+        }
+        
         video.onloadedmetadata = async () => {
-            logDebug(`📹 Video cargado: ${video.videoWidth}x${video.videoHeight}`);
-            updateStatus('Cámara iniciada - Inicializando detectores...', 'success');
+            logDebug(`📹 Cámara trasera cargada: ${video.videoWidth}x${video.videoHeight}`);
+            updateStatus('Cámara trasera iniciada - Inicializando detectores...', 'success');
             
             try {
                 await initializeDetectors();
                 startAllProcesses();
-                updateStatus('Sistema completamente activo', 'success');
+                updateStatus('Sistema completamente activo con cámara trasera', 'success');
             } catch (initError) {
                 logDebug(`❌ Error inicializando detectores: ${initError.message}`);
-                updateStatus('Cámara OK - Error en detectores', 'warning');
+                updateStatus('Cámara trasera OK - Error en detectores', 'warning');
             }
         };
 
         video.onerror = (error) => {
             logDebug(`❌ Error en elemento video: ${error}`);
-            updateStatus('Error reproduciendo video', 'error');
+            updateStatus('Error reproduciendo video de cámara trasera', 'error');
         };
 
-        // Intentar reproducir el video
         try {
             await video.play();
-            logDebug("▶️ Video reproduciéndose correctamente");
+            logDebug("▶️ Video de cámara trasera reproduciéndose correctamente");
         } catch (playError) {
             logDebug(`⚠️ Error al reproducir (puede ser normal): ${playError.message}`);
-            // Muchas veces el video se reproduce automáticamente sin necesidad de .play()
         }
 
     } catch (error) {
-        logDebug(`❌ Error accediendo a la cámara: ${error.name} - ${error.message}`);
+        logDebug(`❌ Error accediendo a cámara trasera: ${error.name} - ${error.message}`);
         
-        // Manejo específico de errores
         switch (error.name) {
             case 'NotAllowedError':
                 updateStatus('❌ Permisos de cámara denegados. Por favor permite el acceso.', 'error');
-                showCameraHelp('permisos');
                 break;
                 
             case 'NotFoundError':
-                updateStatus('❌ No se encontró ninguna cámara en el dispositivo', 'error');
-                showCameraHelp('nocamera');
-                break;
-                
-            case 'NotReadableError':
-                updateStatus('❌ Cámara en uso por otra aplicación', 'error');
-                showCameraHelp('busy');
+                updateStatus('❌ No se encontró cámara trasera en el dispositivo', 'error');
                 break;
                 
             case 'OverconstrainedError':
-                logDebug("⚠️ Constraints muy restrictivos, intentando con configuración básica...");
+                logDebug("⚠️ Cámara trasera no disponible, intentando con cualquier cámara...");
                 await retryWithBasicConstraints();
                 break;
                 
-            case 'SecurityError':
-                updateStatus('❌ Error de seguridad. ¿Estás usando HTTPS?', 'error');
-                showCameraHelp('https');
-                break;
-                
             default:
-                updateStatus(`❌ Error desconocido: ${error.message}`, 'error');
-                logDebug("🔄 Reintentando en 3 segundos...");
+                updateStatus(`❌ Error con cámara trasera: ${error.message}`, 'error');
                 setTimeout(() => retryWithBasicConstraints(), 3000);
         }
     }
 }
-// Función para reintentar con constraints básicos
+// 4. MODIFICAR retryWithBasicConstraints() para mantener prioridad en trasera
 async function retryWithBasicConstraints() {
     try {
-        logDebug("🔄 Reintentando con constraints básicos...");
-        updateStatus('Reintentando con configuración básica...', 'waiting');
+        logDebug("🔄 Reintentando con cámara trasera básica...");
+        updateStatus('Reintentando con cámara trasera básica...', 'waiting');
         
         const basicConstraints = {
-            video: true,
+            video: { 
+                facingMode: "environment", // Mantener preferencia por trasera
+                width: { ideal: 1280 },
+                height: { ideal: 720 }
+            },
             audio: false
         };
         
@@ -1343,16 +1374,16 @@ async function retryWithBasicConstraints() {
         video.srcObject = stream;
         
         video.onloadedmetadata = async () => {
-            logDebug(`✅ Video iniciado con constraints básicos: ${video.videoWidth}x${video.videoHeight}`);
-            updateStatus('Cámara iniciada con configuración básica', 'success');
+            logDebug(`✅ Cámara trasera iniciada con constraints básicos: ${video.videoWidth}x${video.videoHeight}`);
+            updateStatus('Cámara trasera iniciada con configuración básica', 'success');
             
             try {
                 await initializeDetectors();
                 startAllProcesses();
-                updateStatus('Sistema activo con configuración básica', 'success');
+                updateStatus('Sistema activo con cámara trasera básica', 'success');
             } catch (initError) {
                 logDebug(`❌ Error inicializando detectores: ${initError.message}`);
-                updateStatus('Cámara OK - Funcionando sin detectores IA', 'warning');
+                updateStatus('Cámara trasera OK - Funcionando sin detectores IA', 'warning');
                 startBasicMode();
             }
         };
@@ -1360,9 +1391,24 @@ async function retryWithBasicConstraints() {
         await video.play();
         
     } catch (retryError) {
-        logDebug(`❌ Error en segundo intento: ${retryError.message}`);
-        updateStatus('❌ No se pudo acceder a la cámara', 'error');
-        showCameraHelp('failed');
+        logDebug(`❌ Error en segundo intento con cámara trasera: ${retryError.message}`);
+        
+        // Último intento con cualquier cámara disponible
+        try {
+            logDebug("🔄 Último intento con cualquier cámara disponible...");
+            const anyCamera = await navigator.mediaDevices.getUserMedia({ video: true });
+            video.srcObject = anyCamera;
+            updateStatus('⚠️ Usando cámara disponible (puede no ser trasera)', 'warning');
+            
+            video.onloadedmetadata = async () => {
+                await initializeDetectors();
+                startAllProcesses();
+            };
+            
+        } catch (finalError) {
+            updateStatus('❌ No se pudo acceder a ninguna cámara', 'error');
+            showCameraHelp('failed');
+        }
     }
 }
 // Modo básico sin IA (solo para mostrar la cámara)
@@ -1431,8 +1477,8 @@ async function initializeDetectors() {
         
         // Inicializar zoom manager primero
         zoomManager = new ZoomManager(video, canvas, ctx);
-        zoomManager.setTargetZoom(5);
-        logDebug("✅ Zoom manager inicializado");
+        zoomManager.setTargetZoom(initialZoom); // Usar zoom inicial en lugar de 5
+        logDebug(`✅ Zoom manager inicializado con zoom ${initialZoom}x`);
         
         // Inicializar detector de movimiento
         motionDetector = new MotionDetector(video, canvas);
@@ -1496,11 +1542,11 @@ function startAllProcesses() {
         }, MOTION_DETECTION_INTERVAL);
     }
     
-    updateStatus('Sistema activo - Zoom 5x - Monitoreando...', 'active');
+    updateStatus(`Sistema activo - Zoom ${initialZoom}x - Monitoreando...`, 'active');
     logDebug("Sistema iniciado en modo automático");
 }
 
-// Detección de personas con grabación automática
+// 1. MODIFICAR performPersonDetection() - Reemplazar desde línea ~580 hasta ~650
 async function performPersonDetection() {
     if (!personDetector || !personDetector.isLoaded || isVideoRecording || !zoomManager) return;
 
@@ -1516,34 +1562,16 @@ async function performPersonDetection() {
                 lastDetectionTime = currentTime;
                 detectionMade = true;
                 
-                zoomManager.setTargetZoom(1); // Cambiar a zoom 1x
-                
-                updateStatus('¡Persona detectada! Zoom 1x', 'detected');
+                updateStatus('¡Persona detectada! Esperando movimiento...', 'detected');
                 updatePersonCount(1);
                 
-                // Captura de fotos automática
-                if (autoCaptureCheckbox.checked && !photoCapture.isCapturing) {
-                    await photoCapture.startCapturing('Persona detectada');
-                }
+                // MARCAR QUE HAY PERSONA DETECTADA GLOBALMENTE
+                window.personCurrentlyDetected = true;
                 
-                // Grabación de video automática
-                if (autoRecordCheckbox.checked && !isVideoRecording) {
-                    await startAutoVideoRecording();
-                }
-                
-                // Volver a zoom 5x después de 10 segundos
-                clearTimeout(zoomResetTimeout);
-                zoomResetTimeout = setTimeout(() => {
-                    zoomManager.setTargetZoom(5);
-                    updateStatus('Zoom restaurado a 5x - Monitoreando...', 'active');
-                    logDebug("Zoom restaurado a 5x");
-                }, ZOOM_HOLD_DURATION);
             } else {
                 updatePersonCount(0);
-                
-                if (currentTime - lastDetectionTime > ZOOM_HOLD_DURATION) {
-                    zoomManager.setTargetZoom(5);
-                }
+                // MARCAR QUE NO HAY PERSONA
+                window.personCurrentlyDetected = false;
             }
         }
 
@@ -1552,37 +1580,25 @@ async function performPersonDetection() {
             const bodyPartsDetection = await personDetector.detectBodyParts();
             if (bodyPartsDetection.detected) {
                 detectionMade = true;
-                zoomManager.setTargetZoom(1);
                 
-                updateStatus('¡Objetos corporales detectados! Zoom 1x', 'detected');
+                updateStatus('¡Objetos corporales detectados! Esperando movimiento...', 'detected');
                 logDebug(`Objetos detectados: ${bodyPartsDetection.objects.map(o => o.class).join(', ')}`);
                 
-                if (autoCaptureCheckbox.checked && !photoCapture.isCapturing) {
-                    await photoCapture.startCapturing('Objetos detectados');
-                }
-                
-                if (autoRecordCheckbox.checked && !isVideoRecording) {
-                    await startAutoVideoRecording();
-                }
-                
-                clearTimeout(zoomResetTimeout);
-                zoomResetTimeout = setTimeout(() => {
-                    zoomManager.setTargetZoom(5);
-                    updateStatus('Zoom restaurado a 5x - Monitoreando...', 'active');
-                }, ZOOM_HOLD_DURATION);
+                // MARCAR QUE HAY DETECCIÓN DE CUERPO
+                window.personCurrentlyDetected = true;
             }
         }
 
         if (!detectionMade && currentTime - lastDetectionTime > 15000 && !isVideoRecording) {
-            updateStatus('Sin detecciones - Zoom 5x - Monitoreando...', 'waiting');
+            updateStatus(`Sin detecciones - Zoom ${initialZoom}x - Monitoreando...`, 'waiting');
+            window.personCurrentlyDetected = false;
         }
 
     } catch (error) {
         logDebug(`Error en detección: ${error.message}`);
     }
 }
-
-// Detección de movimiento con grabación automática
+// 2. MODIFICAR performMotionDetection() - Reemplazar desde línea ~652 hasta ~695
 function performMotionDetection() {
     if (!motionDetector || isVideoRecording || !zoomManager) return;
 
@@ -1592,40 +1608,49 @@ function performMotionDetection() {
         
         updateMotionLevel(motion.level);
         
-        if (motion.detected && motion.area > motionDetector.minMotionArea) {
-            if (currentTime - lastMotionTime > MOTION_COOLDOWN) {
+        // SOLO ACTUAR SI HAY MOVIMIENTO Y PERSONA DETECTADA
+        if (motion.detected && motion.area > 50 && window.personCurrentlyDetected) {
+            if (currentTime - lastMotionTime > 1500) {
                 motionDetected = true;
                 lastMotionTime = currentTime;
                 
+                // Hacer zoom cuando hay movimiento Y persona
                 zoomManager.setTargetZoom(1);
                 
-                logDebug(`Movimiento detectado: ${motion.level}%`);
-                updateStatus('¡Movimiento detectado! Zoom 1x', 'motion');
+                logDebug(`⚡ MOVIMIENTO + PERSONA DETECTADOS: ${motion.level}%`);
+                updateStatus('¡Movimiento con persona! Capturando...', 'motion');
                 
-                // Captura de fotos automática
+                // Solo capturar si hay movimiento Y persona
                 if (autoCaptureCheckbox.checked && !photoCapture.isCapturing) {
-                    photoCapture.startCapturing('Movimiento detectado');
+                    photoCapture.startCapturing('Movimiento + Persona detectada');
                 }
                 
-                // Grabación de video automática
+                // Solo grabar si hay movimiento Y persona
                 if (autoRecordCheckbox.checked && !isVideoRecording) {
                     startAutoVideoRecording();
                 }
                 
                 clearTimeout(zoomResetTimeout);
-                zoomResetTimeout = setTimeout(() => {
-                    zoomManager.setTargetZoom(5);
-                    updateStatus('Zoom restaurado a 5x - Monitoreando...', 'active');
-                }, ZOOM_HOLD_DURATION);
             }
+        } else if (motion.detected && motion.area > 50 && !window.personCurrentlyDetected) {
+            // Si hay movimiento pero NO persona, solo informar
+            updateStatus('Movimiento detectado - Sin persona presente', 'waiting');
+            logDebug(`⚡ Movimiento sin persona: ${motion.level}% - No se captura`);
         } else {
-            motionDetected = false;
+            // Si no hay movimiento, restaurar zoom después de un tiempo
+            if (motionDetected && currentTime - lastMotionTime > 5000) {
+                motionDetected = false;
+                zoomManager.setTargetZoom(initialZoom);
+                updateStatus(`Sin movimiento - Zoom restaurado a ${initialZoom}x`, 'active');
+                logDebug('Zoom restaurado por falta de movimiento');
+            }
         }
 
     } catch (error) {
         logDebug(`Error en detección de movimiento: ${error.message}`);
     }
 }
+
 
 // Funciones de control
 function pauseDetection() {
@@ -1762,11 +1787,10 @@ async function captureHighQualityPhoto() {
         logDebug(`❌ Error en captura de alta calidad: ${error.message}`);
     }
 }
-// Agregar controles de descarga al DOM
+// 6. REMOVER EL BOTÓN DE CAMBIAR CÁMARA (modificar addDownloadControls)
 function addDownloadControls() {
     const controlsDiv = document.querySelector('.controls');
     if (!controlsDiv) return;
- 
     
     // Botón para alternar descarga automática
     const autoDownloadBtn = document.createElement('button');
@@ -1792,6 +1816,9 @@ function addDownloadControls() {
     hqPhotoBtn.className = 'btn-secondary';
     hqPhotoBtn.onclick = captureHighQualityPhoto;
     
+    // REMOVER: Botón para alternar cámara (ya no se incluye)
+    // const toggleCameraBtn = document.createElement('button');
+    
     // Agregar botones antes del botón de limpiar fotos
     const clearBtn = controlsDiv.querySelector('button[onclick*="clearPhotos"]');
     if (clearBtn) {
@@ -1799,10 +1826,28 @@ function addDownloadControls() {
         controlsDiv.insertBefore(downloadAllBtn, clearBtn);
         controlsDiv.insertBefore(hqPhotoBtn, clearBtn);
     } else {
-        // Si no encuentra el botón, agregar al final
         controlsDiv.appendChild(autoDownloadBtn);
         controlsDiv.appendChild(downloadAllBtn);
         controlsDiv.appendChild(hqPhotoBtn);
+    }
+}
+// 7. AGREGAR FUNCIÓN PARA DETECTAR SI LA CÁMARA ES TRASERA
+async function verifyCameraType() {
+    try {
+        if (video.srcObject) {
+            const videoTrack = video.srcObject.getVideoTracks()[0];
+            const settings = videoTrack.getSettings();
+            
+            if (settings.facingMode) {
+                logDebug(`📱 Tipo de cámara detectado: ${settings.facingMode}`);
+                if (settings.facingMode !== 'environment') {
+                    logDebug('⚠️ Advertencia: No se está usando la cámara trasera');
+                    updateStatus('⚠️ Cámara frontal detectada - Funcionalidad limitada', 'warning');
+                }
+            }
+        }
+    } catch (error) {
+        logDebug(`Error verificando tipo de cámara: ${error.message}`);
     }
 }
 // Inicializar controles de descarga cuando el DOM esté listo
@@ -1852,7 +1897,7 @@ function stopAllProcesses() {
     }
     
     if (zoomManager) {
-        zoomManager.setTargetZoom(5);
+        zoomManager.setTargetZoom(initialZoom);
     }
     
     if (ctx) {
