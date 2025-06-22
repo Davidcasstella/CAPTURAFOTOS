@@ -524,7 +524,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tensorflow/4.2.0/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.2/dist/coco-ssd.min.js"></script>
 
-    <script>
+<script>
 // Referencias a elementos del DOM
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas-display');
@@ -571,6 +571,10 @@ let totalVideosCaptured = 0;
 let isPaused = false;
 let currentFacingMode = "environment";
 
+// NUEVA VARIABLE: Control de pausa de detección
+let isInCooldownPeriod = false;
+let cooldownEndTime = 0;
+
 // Variables para grabación de video
 let mediaRecorder;
 let recordedChunks = [];
@@ -581,6 +585,7 @@ let countdownInterval;
 let audioStream = null;
 let initialZoom = 3;
 let videoDuration = 10000;
+let currentMimeType = null;
 
 // Variables para detección de colores
 let colorDetected = false;
@@ -591,6 +596,7 @@ const COLOR_DETECTION_COOLDOWN = 3000; // 3 segundos entre detecciones
 const ZOOM_HOLD_DURATION = 8000;
 const DETECTION_INTERVAL = 500;
 const RENDER_FPS = 30;
+const DETECTION_COOLDOWN_DURATION = 3000; // 3 segundos sin detectar mientras vuelve al zoom
 
 // Instancias de las clases
 let zoomManager;
@@ -610,7 +616,7 @@ detectionConfidenceSlider.addEventListener('input', () => {
 initialZoomSlider.addEventListener('input', () => {
     initialZoom = parseFloat(initialZoomSlider.value);
     initialZoomValue.textContent = initialZoom + 'x';
-    if (zoomManager) {
+    if (zoomManager && !isInCooldownPeriod) {
         zoomManager.setTargetZoom(initialZoom);
     }
 });
@@ -620,8 +626,7 @@ videoDurationSlider.addEventListener('input', () => {
     videoDurationValue.textContent = videoDurationSlider.value + 's';
 });
 
-// Clase para detección de colores
-// Clase para detección de colores
+// Clase para detección de colores MEJORADA
 class ColorDetector {
     constructor(videoElement, canvasElement) {
         this.video = videoElement;
@@ -629,35 +634,42 @@ class ColorDetector {
         this.ctx = this.canvas.getContext('2d');
         this.colorCanvas = document.createElement('canvas');
         this.colorCtx = this.colorCanvas.getContext('2d');
-        // Canvas de análisis con tamaño fijo
         this.analysisSize = 320;
     }
 
     detectRedOrOrange() {
-        if (!this.video.videoWidth || !this.video.videoHeight) {
+        if (!this.video.videoWidth || !this.video.videoHeight || !zoomManager) {
             return { detected: false, color: null };
         }
 
         try {
-            // Detectar orientación actual
             const videoWidth = this.video.videoWidth;
             const videoHeight = this.video.videoHeight;
             const isLandscape = videoWidth > videoHeight;
             
-            // Ajustar el canvas de análisis según la orientación
+            // IMPORTANTE: Aplicar el zoom actual a la detección
+            const currentZoom = zoomManager.currentZoom;
+            
+            // Calcular el área visible con zoom
+            const visibleWidth = videoWidth / currentZoom;
+            const visibleHeight = videoHeight / currentZoom;
+            const offsetX = (videoWidth - visibleWidth) / 2;
+            const offsetY = (videoHeight - visibleHeight) / 2;
+            
+            // Ajustar el canvas de análisis
             if (isLandscape) {
                 this.colorCanvas.width = this.analysisSize;
-                this.colorCanvas.height = Math.floor(this.analysisSize * (videoHeight / videoWidth));
+                this.colorCanvas.height = Math.floor(this.analysisSize * (visibleHeight / visibleWidth));
             } else {
-                this.colorCanvas.width = Math.floor(this.analysisSize * (videoWidth / videoHeight));
+                this.colorCanvas.width = Math.floor(this.analysisSize * (visibleWidth / visibleHeight));
                 this.colorCanvas.height = this.analysisSize;
             }
             
-            // Dibujar el frame completo en el canvas de análisis
+            // Dibujar SOLO el área visible con zoom
             this.colorCtx.drawImage(
                 this.video, 
-                0, 0, videoWidth, videoHeight,
-                0, 0, this.colorCanvas.width, this.colorCanvas.height
+                offsetX, offsetY, visibleWidth, visibleHeight,  // Área fuente con zoom
+                0, 0, this.colorCanvas.width, this.colorCanvas.height  // Área destino
             );
             
             const imageData = this.colorCtx.getImageData(0, 0, this.colorCanvas.width, this.colorCanvas.height);
@@ -667,19 +679,20 @@ class ColorDetector {
             let orangePixels = 0;
             const totalPixels = data.length / 4;
             
-            // Ajustar umbral según orientación
-            const minPixelPercentage = isLandscape ? 0.015 : 0.02; // 1.5% horizontal, 2% vertical
+            // Ajustar umbral según orientación y zoom
+            const zoomFactor = Math.max(1, currentZoom / 3); // Factor de ajuste por zoom
+            const minPixelPercentage = (isLandscape ? 0.015 : 0.02) * zoomFactor;
 
             for (let i = 0; i < data.length; i += 4) {
                 const r = data[i];
                 const g = data[i + 1];
                 const b = data[i + 2];
 
-                // Detección de rojo con rangos ajustados
+                // Detección de rojo
                 if (r > 140 && g < 90 && b < 90 && (r - g) > 50) {
                     redPixels++;
                 }
-                // Detección de naranja con rangos ajustados
+                // Detección de naranja
                 else if (r > 180 && g > 90 && g < 190 && b < 120 && (r - b) > 60) {
                     orangePixels++;
                 }
@@ -693,14 +706,16 @@ class ColorDetector {
                     detected: true, 
                     color: 'rojo', 
                     percentage: (redPercentage * 100).toFixed(2),
-                    orientation: isLandscape ? 'horizontal' : 'vertical'
+                    orientation: isLandscape ? 'horizontal' : 'vertical',
+                    zoom: currentZoom.toFixed(1)
                 };
             } else if (orangePercentage > minPixelPercentage) {
                 return { 
                     detected: true, 
                     color: 'naranja', 
                     percentage: (orangePercentage * 100).toFixed(2),
-                    orientation: isLandscape ? 'horizontal' : 'vertical'
+                    orientation: isLandscape ? 'horizontal' : 'vertical',
+                    zoom: currentZoom.toFixed(1)
                 };
             }
 
@@ -712,7 +727,7 @@ class ColorDetector {
     }
 }
 
-// Clase ZoomManager
+// Clase ZoomManager MEJORADA
 class ZoomManager {
     constructor(videoElement, canvasElement, contextElement) {
         this.video = videoElement;
@@ -765,11 +780,13 @@ class ZoomManager {
         let drawWidth, drawHeight;
         let sourceX, sourceY, sourceWidth, sourceHeight;
 
+        // Calcular área fuente con zoom
         sourceWidth = this.video.videoWidth / this.currentZoom;
         sourceHeight = this.video.videoHeight / this.currentZoom;
         sourceX = (this.video.videoWidth - sourceWidth) / 2;
         sourceY = (this.video.videoHeight - sourceHeight) / 2;
 
+        // Calcular área de dibujo manteniendo aspecto
         if (videoAspect > canvasAspect) {
             drawHeight = this.canvas.height;
             drawWidth = drawHeight * videoAspect;
@@ -781,10 +798,12 @@ class ZoomManager {
         const drawX = (this.canvas.width - drawWidth) / 2;
         const drawY = (this.canvas.height - drawHeight) / 2;
 
+        // Limpiar canvas
         this.ctx.fillStyle = '#000000';
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
         try {
+            // Dibujar video con zoom aplicado
             this.ctx.drawImage(
                 this.video,
                 sourceX, sourceY, sourceWidth, sourceHeight,
@@ -1025,7 +1044,7 @@ function logDebug(message) {
     }
 }
 
-// Función de grabación de video
+// Función mejorada de grabación de video con forzado de MP4
 async function startAutoVideoRecording() {
     if (!video.srcObject || isVideoRecording) {
         return;
@@ -1043,26 +1062,45 @@ async function startAutoVideoRecording() {
             ]);
             logDebug("Audio capturado exitosamente");
         } catch (audioError) {
-            logDebug("Grabando solo video");
+            logDebug("Grabando solo video (sin audio)");
             combinedStream = videoStream;
         }
         
-        const mimeTypes = [
+        // Intentar primero con codecs MP4
+        const mp4Codecs = [
             'video/mp4;codecs=h264,aac',
+            'video/mp4;codecs=h264',
+            'video/mp4'
+        ];
+        
+        // Si MP4 no está soportado, usar WebM como fallback
+        const webmCodecs = [
             'video/webm;codecs=vp9,opus',
             'video/webm;codecs=vp8,opus',
+            'video/webm;codecs=h264,opus',
             'video/webm'
         ];
         
-        let selectedMimeType = mimeTypes.find(type => MediaRecorder.isTypeSupported(type));
+        // Primero intentar con MP4
+        let selectedMimeType = mp4Codecs.find(type => MediaRecorder.isTypeSupported(type));
+        
+        if (!selectedMimeType) {
+            // Si MP4 no está soportado, usar WebM
+            selectedMimeType = webmCodecs.find(type => MediaRecorder.isTypeSupported(type));
+            logDebug("MP4 no soportado, usando WebM como fallback");
+        } else {
+            logDebug("Usando codec MP4: " + selectedMimeType);
+        }
         
         if (!selectedMimeType) {
             throw new Error('No se encontró un codec compatible');
         }
         
+        currentMimeType = selectedMimeType;
+        
         const options = {
             mimeType: selectedMimeType,
-            videoBitsPerSecond: 2500000
+            videoBitsPerSecond: 4000000 // Aumentado para mejor calidad
         };
         
         mediaRecorder = new MediaRecorder(combinedStream, options);
@@ -1076,10 +1114,19 @@ async function startAutoVideoRecording() {
         };
         
         mediaRecorder.onstop = () => {
+            // Determinar si es MP4 o WebM basándose en el MIME type usado
+            const isMP4 = currentMimeType.includes('mp4');
+            
             const blob = new Blob(recordedChunks, { 
-                type: selectedMimeType.includes('mp4') ? 'video/mp4' : 'video/webm' 
+                type: isMP4 ? 'video/mp4' : 'video/webm'
             });
-            downloadVideo(blob, selectedMimeType.includes('mp4'));
+            
+            // Si es WebM pero queremos MP4, intentar conversión básica
+            if (!isMP4) {
+                logDebug("Archivo WebM creado, descargando como WebM (conversión a MP4 requiere procesamiento adicional)");
+            }
+            
+            downloadVideo(blob, isMP4);
             
             if (audioStream) {
                 audioStream.getTracks().forEach(track => track.stop());
@@ -1096,7 +1143,7 @@ async function startAutoVideoRecording() {
         const durationSeconds = videoDuration / 1000;
         startCountdown(durationSeconds);
         
-        logDebug(`Grabación automática iniciada (${durationSeconds} segundos)`);
+        logDebug(`Grabación automática iniciada (${durationSeconds} segundos) - Formato: ${currentMimeType}`);
         
         recordingTimeout = setTimeout(() => {
             stopVideoRecording();
@@ -1149,26 +1196,58 @@ function stopVideoRecording() {
     }
 }
 
-// Función para descargar video
+// Función mejorada para descargar video
 function downloadVideo(blob, isMp4 = false) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const extension = isMp4 ? 'mp4' : 'webm';
+    
+    // Siempre intentar guardar como .mp4 si es posible
+    let extension = 'mp4';
+    let filename = `deteccion_video_${timestamp}`;
+    
+    if (!isMp4) {
+        // Si no es MP4 nativo, agregar una nota al nombre del archivo
+        extension = 'webm';
+        logDebug("⚠️ Formato MP4 no disponible en este navegador, guardando como WebM");
+        logDebug("💡 Para convertir a MP4, use un convertidor de video externo");
+    }
     
     a.href = url;
-    a.download = `deteccion_video_${timestamp}.${extension}`;
+    a.download = `${filename}.${extension}`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
     
-    logDebug(`Video guardado como .${extension}`);
+    logDebug(`📹 Video guardado: ${filename}.${extension}`);
+    
+    if (!isMp4) {
+        // Mostrar mensaje adicional si es WebM
+        updateStatus('Video guardado como WebM (MP4 no soportado)', 'warning');
+        setTimeout(() => {
+            updateStatus('Sistema activo - Monitoreando...', 'active');
+        }, 3000);
+    }
 }
 
-// Función principal de detección
+// FUNCIÓN PRINCIPAL DE DETECCIÓN MODIFICADA
 async function performDetection() {
     if (!personDetector || !personDetector.isLoaded || !colorDetector || isVideoRecording) return;
+
+    // VERIFICAR SI ESTAMOS EN PERÍODO DE COOLDOWN
+    if (isInCooldownPeriod) {
+        const remainingTime = Math.ceil((cooldownEndTime - Date.now()) / 1000);
+        if (remainingTime > 0) {
+            updateStatus(`Volviendo al zoom inicial... (${remainingTime}s)`, 'waiting');
+            return;
+        } else {
+            // Terminar período de cooldown
+            isInCooldownPeriod = false;
+            updateStatus(`Sistema activo - Zoom ${initialZoom}x - Monitoreando...`, 'active');
+            logDebug("✅ Período de cooldown terminado, detección reactivada");
+        }
+    }
 
     try {
         const currentTime = Date.now();
@@ -1202,18 +1281,18 @@ async function performDetection() {
         }
 
         // Detección de colores
-        // Detección de colores
         const colorDetection = colorDetector.detectRedOrOrange();
         if (colorDetection.detected && currentTime - lastColorDetectionTime > COLOR_DETECTION_COOLDOWN) {
             shouldCapture = true;
             captureReason = `Color ${colorDetection.color} detectado`;
-            updateStatus(`¡Color ${colorDetection.color} detectado! (${colorDetection.percentage}%) - ${colorDetection.orientation}`, 'motion');
-            logDebug(`🎨 Color ${colorDetection.color} detectado: ${colorDetection.percentage}% en modo ${colorDetection.orientation}`);
+            updateStatus(`¡Color ${colorDetection.color} detectado! (${colorDetection.percentage}%) - Zoom: ${colorDetection.zoom}x`, 'motion');
+            logDebug(`🎨 Color ${colorDetection.color} detectado: ${colorDetection.percentage}% en zoom ${colorDetection.zoom}x`);
             lastColorDetectionTime = currentTime;
         }
 
         // Realizar captura si se detectó algo
         if (shouldCapture) {
+            // Hacer zoom out a 1x para capturar
             zoomManager.setTargetZoom(1);
             
             if (autoCaptureCheckbox.checked && !photoCapture.isCapturing) {
@@ -1224,15 +1303,25 @@ async function performDetection() {
                 await startAutoVideoRecording();
             }
             
+            // INICIAR PERÍODO DE COOLDOWN
             clearTimeout(zoomResetTimeout);
             zoomResetTimeout = setTimeout(() => {
+                // Activar período de cooldown
+                isInCooldownPeriod = true;
+                cooldownEndTime = Date.now() + DETECTION_COOLDOWN_DURATION;
+                
+                // Volver al zoom inicial
                 zoomManager.setTargetZoom(initialZoom);
-                updateStatus('Sistema activo - Monitoreando...', 'active');
-            }, 10000);
+                
+                logDebug(`⏸️ Iniciando período de cooldown de ${DETECTION_COOLDOWN_DURATION/1000} segundos`);
+                updateStatus('Volviendo al zoom inicial...', 'waiting');
+                
+                // El cooldown se desactiva automáticamente en la próxima llamada a performDetection
+            }, 10000); // Esperar 10 segundos después de la detección antes de volver
         }
 
         // Estado idle
-        if (!shouldCapture && currentTime - lastDetectionTime > 15000) {
+        if (!shouldCapture && currentTime - lastDetectionTime > 15000 && !isInCooldownPeriod) {
             updateStatus(`Sin detecciones - Zoom ${initialZoom}x - Monitoreando...`, 'waiting');
         }
 
@@ -1250,6 +1339,14 @@ function checkBrowserCompatibility() {
     }
     
     logDebug("✅ Navegador compatible con getUserMedia");
+    
+    // Verificar soporte de codecs
+    if (typeof MediaRecorder !== 'undefined') {
+        const mp4Support = MediaRecorder.isTypeSupported('video/mp4');
+        const webmSupport = MediaRecorder.isTypeSupported('video/webm');
+        logDebug(`📹 Soporte de codecs - MP4: ${mp4Support ? '✅' : '❌'}, WebM: ${webmSupport ? '✅' : '❌'}`);
+    }
+    
     return true;
 }
 
@@ -1450,6 +1547,7 @@ function clearPhotos() {
 function stopAllProcesses() {
     isRecording = false;
     isPaused = false;
+    isInCooldownPeriod = false;
     
     if (isVideoRecording) {
         stopVideoRecording();
@@ -1659,12 +1757,13 @@ window.addEventListener('beforeunload', function(event) {
         stopAllProcesses();
     }
 });
+
 // Detectar cambios de orientación
 window.addEventListener('orientationchange', function() {
     logDebug(`📱 Orientación cambiada a: ${screen.orientation.angle}°`);
     setTimeout(() => {
         if (colorDetector) {
-            logDebug("🔄 Reinicializando detector de colores para nueva orientación");
+            logDebug("🔄 Ajustando detector de colores para nueva orientación");
         }
     }, 500);
 });
@@ -1676,6 +1775,6 @@ window.addEventListener('resize', function() {
         logDebug(`📐 Ventana redimensionada - Modo: ${isLandscape ? 'Horizontal' : 'Vertical'}`);
     }
 });
-    </script>
+</script>
 </body>
 </html>
