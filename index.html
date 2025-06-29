@@ -447,7 +447,16 @@
                         <input type="range" id="photo-count" min="1" max="10" value="3">
                         <span id="photo-count-value" class="slider-value">3</span>
                     </div>
+                    <label>
+    Sensibilidad de Movimiento: <span id="movement-sensitivity-value">5%</span>
+    <input type="range" id="movement-sensitivity" min="1" max="20" value="5" step="1">
+</label>
+
+<label>
+    <input type="checkbox" id="detect-movement"> Detectar Movimiento
+</label>
                 </div>
+                
 
                 <div class="control-group">
                     <label for="motion-sensitivity">Sensibilidad de movimiento:</label>
@@ -479,10 +488,16 @@
 
                 <div class="control-group">
                     <label>Opciones de Detección:</label>
+                    <label>
+                    <input type="checkbox" id="detect-colors" checked>
+                    Detectar colores (rojo/naranja)
+                        </label>
                     <div class="checkbox-container">
                         <input type="checkbox" id="detect-persons" checked>
                         <label for="detect-persons">Detectar personas</label>
+                        
                     </div>
+                    
                     <div class="checkbox-container">
                         <input type="checkbox" id="detect-motion" checked>
                         <label for="detect-motion">Detectar movimiento</label>
@@ -500,6 +515,7 @@
                         <label for="auto-record">Grabación automática de video</label>
                     </div>
                 </div>
+                
 
                 <button onclick="pauseDetection()" class="btn-secondary">⏸️ Pausar Detección</button>
                 <button onclick="resumeDetection()" class="btn-primary">▶️ Reanudar Detección</button>
@@ -544,6 +560,7 @@ const initialZoomSlider = document.getElementById('initial-zoom');
 const initialZoomValue = document.getElementById('initial-zoom-value');
 const videoDurationSlider = document.getElementById('video-duration');
 const videoDurationValue = document.getElementById('video-duration-value');
+const detectColorsCheckbox = document.getElementById('detect-colors');
 
 // Elementos de estadísticas
 const personCountDisplay = document.getElementById('person-count');
@@ -570,6 +587,11 @@ let zoomResetTimeout;
 let totalVideosCaptured = 0;
 let isPaused = false;
 let currentFacingMode = "environment";
+let movementDetector;
+// Variables para detección de movimiento
+let previousFrame = null;
+let movementDetected = false;
+let lastMovementTime = 0;
 
 // NUEVA VARIABLE: Control de pausa de detección
 let isInCooldownPeriod = false;
@@ -591,13 +613,18 @@ let currentMimeType = null;
 let colorDetected = false;
 let lastColorDetectionTime = 0;
 const COLOR_DETECTION_COOLDOWN = 3000; // 3 segundos entre detecciones
-
+const MOVEMENT_DETECTION_COOLDOWN = 5000;
 // Configuración
 const ZOOM_HOLD_DURATION = 8000;
 const DETECTION_INTERVAL = 500;
 const RENDER_FPS = 30;
 const DETECTION_COOLDOWN_DURATION = 3000; // 3 segundos sin detectar mientras vuelve al zoom
-
+const movementSensitivitySlider = document.getElementById('movement-sensitivity');
+const movementSensitivityValue = document.getElementById('movement-sensitivity-value');
+const detectMovementCheckbox = document.getElementById('detect-movement');
+const MOVEMENT_THRESHOLD_BASE = 45; // Umbral base más alto (era ~30)
+const MOVEMENT_PIXELS_MIN_PERCENTAGE = 3.5; // Mínimo 3.5% de píxeles deben cambiar
+const MOVEMENT_STABILIZATION_FRAMES = 3; // Necesita 3 frames consecutivos para confirmarf
 // Instancias de las clases
 let zoomManager;
 let personDetector;
@@ -611,6 +638,27 @@ photoCountSlider.addEventListener('input', () => {
 
 detectionConfidenceSlider.addEventListener('input', () => {
     detectionConfidenceValue.textContent = detectionConfidenceSlider.value + '%';
+});
+movementSensitivitySlider.addEventListener('input', () => {
+    const sensitivity = parseFloat(movementSensitivitySlider.value);
+    movementSensitivityValue.textContent = sensitivity + '%';
+    
+    // Actualizar el texto de ayuda
+    let helpText = '';
+    if (sensitivity < 20) helpText = ' (Muy sensible - detecta movimientos sutiles)';
+    else if (sensitivity < 40) helpText = ' (Sensible - detecta movimientos moderados)';
+    else if (sensitivity < 60) helpText = ' (Normal - movimientos evidentes)';
+    else if (sensitivity < 80) helpText = ' (Poco sensible - solo movimientos grandes)';
+    else helpText = ' (Muy poco sensible - solo movimientos dramáticos)';
+    
+    movementSensitivityValue.textContent = sensitivity + '%' + helpText;
+    
+    // Reiniciar historial del detector si existe
+    if (movementDetector) {
+        movementDetector.frameHistory = [];
+        movementDetector.consecutiveDetections = 0;
+        logDebug(`🎚️ Sensibilidad de movimiento ajustada a ${sensitivity}%`);
+    }
 });
 
 initialZoomSlider.addEventListener('input', () => {
@@ -723,6 +771,193 @@ class ColorDetector {
         } catch (error) {
             logDebug(`Error en detección de color: ${error.message}`);
             return { detected: false, color: null };
+        }
+    }
+}
+class MovementDetector {
+    constructor(videoElement, canvasElement) {
+        this.video = videoElement;
+        this.canvas = canvasElement;
+        this.ctx = this.canvas.getContext('2d');
+        this.previousFrame = null;
+        this.detectionCanvas = document.createElement('canvas');
+        this.detectionCtx = this.detectionCanvas.getContext('2d');
+        this.analysisSize = 160; // Tamaño reducido para mejor rendimiento
+        
+        // NUEVAS VARIABLES PARA ESTABILIZACIÓN
+        this.frameHistory = []; // Historial de detecciones
+        this.consecutiveDetections = 0;
+        this.lastMovementPercentage = 0;
+    }
+
+    detectMovement() {
+        if (!this.video.videoWidth || !this.video.videoHeight || !zoomManager) {
+            return { detected: false, percentage: 0, confidence: 'low' };
+        }
+
+        try {
+            const videoWidth = this.video.videoWidth;
+            const videoHeight = this.video.videoHeight;
+            
+            // Aplicar zoom actual
+            const currentZoom = zoomManager.currentZoom;
+            const visibleWidth = videoWidth / currentZoom;
+            const visibleHeight = videoHeight / currentZoom;
+            const offsetX = (videoWidth - visibleWidth) / 2;
+            const offsetY = (videoHeight - visibleHeight) / 2;
+            
+            // Configurar canvas de detección
+            const aspectRatio = visibleWidth / visibleHeight;
+            if (aspectRatio > 1) {
+                this.detectionCanvas.width = this.analysisSize;
+                this.detectionCanvas.height = Math.floor(this.analysisSize / aspectRatio);
+            } else {
+                this.detectionCanvas.width = Math.floor(this.analysisSize * aspectRatio);
+                this.detectionCanvas.height = this.analysisSize;
+            }
+            
+            // Dibujar frame actual
+            this.detectionCtx.drawImage(
+                this.video,
+                offsetX, offsetY, visibleWidth, visibleHeight,
+                0, 0, this.detectionCanvas.width, this.detectionCanvas.height
+            );
+            
+            const currentImageData = this.detectionCtx.getImageData(
+                0, 0, this.detectionCanvas.width, this.detectionCanvas.height
+            );
+            
+            if (!this.previousFrame) {
+                this.previousFrame = currentImageData;
+                return { detected: false, percentage: 0, confidence: 'initializing' };
+            }
+            
+            // ALGORITMO MEJORADO DE DETECCIÓN
+            const movementResult = this.calculateMovement(currentImageData, this.previousFrame);
+            this.previousFrame = currentImageData;
+            
+            // VALIDACIÓN CON HISTORIAL
+            const isValidMovement = this.validateMovementWithHistory(movementResult);
+            
+            return {
+                detected: isValidMovement.detected,
+                percentage: movementResult.percentage,
+                confidence: isValidMovement.confidence,
+                pixelsChanged: movementResult.pixelsChanged,
+                threshold: movementResult.threshold
+            };
+            
+        } catch (error) {
+            logDebug(`Error en detección de movimiento: ${error.message}`);
+            return { detected: false, percentage: 0, confidence: 'error' };
+        }
+    }
+    
+    calculateMovement(currentData, previousData) {
+        const current = currentData.data;
+        const previous = previousData.data;
+        let significantChanges = 0;
+        
+        // UMBRAL DINÁMICO basado en sensibilidad del usuario
+        const userSensitivity = parseFloat(movementSensitivitySlider.value);
+        const dynamicThreshold = MOVEMENT_THRESHOLD_BASE + (50 - userSensitivity) * 0.8;
+        
+        // Procesar en bloques para mejor detección
+        const blockSize = 8; // Procesar en bloques de 8x8 píxeles
+        const width = this.detectionCanvas.width;
+        const height = this.detectionCanvas.height;
+        
+        for (let y = 0; y < height - blockSize; y += blockSize) {
+            for (let x = 0; x < width - blockSize; x += blockSize) {
+                let blockDifference = 0;
+                let pixelsInBlock = 0;
+                
+                // Analizar bloque
+                for (let by = 0; by < blockSize; by++) {
+                    for (let bx = 0; bx < blockSize; bx++) {
+                        const pixelIndex = ((y + by) * width + (x + bx)) * 4;
+                        
+                        if (pixelIndex < current.length) {
+                            const rDiff = Math.abs(current[pixelIndex] - previous[pixelIndex]);
+                            const gDiff = Math.abs(current[pixelIndex + 1] - previous[pixelIndex + 1]);
+                            const bDiff = Math.abs(current[pixelIndex + 2] - previous[pixelIndex + 2]);
+                            
+                            const pixelDiff = (rDiff + gDiff + bDiff) / 3;
+                            blockDifference += pixelDiff;
+                            pixelsInBlock++;
+                        }
+                    }
+                }
+                
+                // Si el promedio del bloque supera el umbral, cuenta como cambio significativo
+                const avgBlockDifference = blockDifference / pixelsInBlock;
+                if (avgBlockDifference > dynamicThreshold) {
+                    significantChanges++;
+                }
+            }
+        }
+        
+        const totalBlocks = Math.floor(width / blockSize) * Math.floor(height / blockSize);
+        const changePercentage = (significantChanges / totalBlocks) * 100;
+        
+        return {
+            percentage: changePercentage.toFixed(2),
+            pixelsChanged: significantChanges,
+            threshold: dynamicThreshold.toFixed(1),
+            totalBlocks: totalBlocks
+        };
+    }
+    
+    validateMovementWithHistory(movementResult) {
+        const percentage = parseFloat(movementResult.percentage);
+        this.lastMovementPercentage = percentage;
+        
+        // Agregar al historial (mantener solo últimos 5 frames)
+        this.frameHistory.push(percentage);
+        if (this.frameHistory.length > 5) {
+            this.frameHistory.shift();
+        }
+        
+        // CRITERIOS MÚLTIPLES PARA VALIDAR MOVIMIENTO REAL
+        const minPercentageRequired = MOVEMENT_PIXELS_MIN_PERCENTAGE;
+        const isAboveMinimum = percentage > minPercentageRequired;
+        
+        // Verificar que no sea solo ruido (cambios muy pequeños)
+        const isSignificantChange = percentage > (minPercentageRequired * 1.5);
+        
+        // Verificar consistencia en frames recientes
+        const recentHighMovement = this.frameHistory.filter(p => p > minPercentageRequired).length;
+        const hasConsistentMovement = recentHighMovement >= 2;
+        
+        // Detectar movimiento súbito (cambio dramático)
+        const previousAvg = this.frameHistory.length > 1 ? 
+            this.frameHistory.slice(0, -1).reduce((a, b) => a + b, 0) / (this.frameHistory.length - 1) : 0;
+        const isSuddenMovement = percentage > (previousAvg * 2.5) && percentage > minPercentageRequired;
+        
+        if (isAboveMinimum && (isSignificantChange || hasConsistentMovement || isSuddenMovement)) {
+            this.consecutiveDetections++;
+            
+            // Requiere al menos N detecciones consecutivas O un movimiento súbito muy alto
+            const isConfirmed = this.consecutiveDetections >= MOVEMENT_STABILIZATION_FRAMES || 
+                               (isSuddenMovement && percentage > minPercentageRequired * 2);
+            
+            if (isConfirmed) {
+                return {
+                    detected: true,
+                    confidence: isSuddenMovement ? 'high' : 'medium'
+                };
+            } else {
+                return {
+                    detected: false,
+                    confidence: 'building'
+                };
+            }
+        } else {
+            this.consecutiveDetections = Math.max(0, this.consecutiveDetections - 1);
+            return {
+                detected: false,
+                confidence: 'low'
+            };
         }
     }
 }
@@ -1281,14 +1516,39 @@ async function performDetection() {
         }
 
         // Detección de colores
-        const colorDetection = colorDetector.detectRedOrOrange();
-        if (colorDetection.detected && currentTime - lastColorDetectionTime > COLOR_DETECTION_COOLDOWN) {
-            shouldCapture = true;
+       
+        if (detectColorsCheckbox.checked) {
+            const colorDetection = colorDetector.detectRedOrOrange();
+            if (colorDetection.detected && currentTime - lastColorDetectionTime > COLOR_DETECTION_COOLDOWN) {
+                shouldCapture = true;
             captureReason = `Color ${colorDetection.color} detectado`;
             updateStatus(`¡Color ${colorDetection.color} detectado! (${colorDetection.percentage}%) - Zoom: ${colorDetection.zoom}x`, 'motion');
             logDebug(`🎨 Color ${colorDetection.color} detectado: ${colorDetection.percentage}% en zoom ${colorDetection.zoom}x`);
             lastColorDetectionTime = currentTime;
+            }
         }
+        // Detección de movimiento
+          if (detectMovementCheckbox.checked && !shouldCapture) {
+    const movementDetection = movementDetector.detectMovement();
+    
+    // Solo activar si la detección es confiable y ha pasado el cooldown
+    if (movementDetection.detected && 
+        movementDetection.confidence !== 'low' && 
+        currentTime - lastMovementTime > MOVEMENT_DETECTION_COOLDOWN) {
+        
+        shouldCapture = true;
+        captureReason = `Movimiento ${movementDetection.confidence} detectado (${movementDetection.percentage}%)`;
+        
+        updateStatus(`¡Movimiento ${movementDetection.confidence}! ${movementDetection.percentage}% (${movementDetection.pixelsChanged} bloques cambiaron)`, 'motion');
+        logDebug(`🏃 Movimiento ${movementDetection.confidence}: ${movementDetection.percentage}% - Umbral: ${movementDetection.threshold} - Bloques: ${movementDetection.pixelsChanged}`);
+        lastMovementTime = currentTime;
+    }
+    
+    // Log opcional para debugging (solo si el porcentaje es mayor a 1%)
+    if (parseFloat(movementDetection.percentage) > 1.0 && movementDetection.confidence !== 'low') {
+        logDebug(`📊 Movimiento detectado pero no activado: ${movementDetection.percentage}% (${movementDetection.confidence}) - Cooldown: ${Math.max(0, MOVEMENT_DETECTION_COOLDOWN - (currentTime - lastMovementTime))}ms restantes`);
+    }
+}
 
         // Realizar captura si se detectó algo
         if (shouldCapture) {
@@ -1448,6 +1708,8 @@ async function initializeDetectors() {
         
         colorDetector = new ColorDetector(video, canvas);
         logDebug("✅ Detector de colores inicializado");
+        movementDetector = new MovementDetector(video, canvas);
+        logDebug("✅ Detector de movimiento inicializado");
         
         personDetector = new PersonDetector();
         await personDetector.loadModel();
