@@ -448,8 +448,8 @@
                         <span id="photo-count-value" class="slider-value">3</span>
                     </div>
                     <label>
-    Sensibilidad de Movimiento: <span id="movement-sensitivity-value">5%</span>
-    <input type="range" id="movement-sensitivity" min="1" max="20" value="5" step="1">
+    Sensibilidadd de Movimiento: <span id="movement-sensitivity-value">5%</span>
+    <input type="range" id="movement-sensitivity" min="5" max="95" value="20" step="5">
 </label>
 
 <label>
@@ -476,8 +476,8 @@
                                     <!-- Agregar estos controles después de los sliders existentes -->
                     <div class="control-group">
                         <label for="initial-zoom">Zoom Inicial:</label>
-                        <input type="range" id="initial-zoom" min="1" max="10" step="0.5" value="3">
-                        <span id="initial-zoom-value">3x</span>
+                        <input type="range" id="initial-zoom" min="1" max="15" value="10" step="0.5">
+                        <span id="initial-zoom-value">10x</span>
                     </div>
 
                     <div class="control-group">
@@ -489,11 +489,11 @@
                 <div class="control-group">
                     <label>Opciones de Detección:</label>
                     <label>
-                    <input type="checkbox" id="detect-colors" checked>
+                    <input type="checkbox" id="detect-colors" >
                     Detectar colores (rojo/naranja)
                         </label>
                     <div class="checkbox-container">
-                        <input type="checkbox" id="detect-persons" checked>
+                        <input type="checkbox" id="detect-persons" >
                         <label for="detect-persons">Detectar personas</label>
                         
                     </div>
@@ -503,7 +503,7 @@
                         <label for="detect-motion">Detectar movimiento</label>
                     </div>
                     <div class="checkbox-container">
-                        <input type="checkbox" id="detect-body-parts" checked>
+                        <input type="checkbox" id="detect-body-parts" >
                         <label for="detect-body-parts">Detectar partes del cuerpo</label>
                     </div>
                     <div class="checkbox-container">
@@ -560,15 +560,11 @@ const initialZoomSlider = document.getElementById('initial-zoom');
 const initialZoomValue = document.getElementById('initial-zoom-value');
 const videoDurationSlider = document.getElementById('video-duration');
 const videoDurationValue = document.getElementById('video-duration-value');
-const detectColorsCheckbox = document.getElementById('detect-colors');
+
 
 // Elementos de estadísticas
-const personCountDisplay = document.getElementById('person-count');
 const videoCountDisplay = document.getElementById('video-count-display');
-
 // Checkboxes
-const detectPersonsCheckbox = document.getElementById('detect-persons');
-const detectBodyPartsCheckbox = document.getElementById('detect-body-parts');
 const autoCaptureCheckbox = document.getElementById('auto-capture');
 const autoRecordCheckbox = document.getElementById('auto-record');
 
@@ -577,12 +573,10 @@ let isRecording = false;
 let isCapturingPhotos = false;
 let detectionInterval;
 let renderInterval;
-let cocoModel;
-let currentZoom = 3;
-let targetZoom = 3;
+
+let currentZoom = 10;
+let targetZoom = 10;
 let zoomTransitionSpeed = 0.1;
-let personDetectedTime = 0;
-let lastDetectionTime = 0;
 let zoomResetTimeout;
 let totalVideosCaptured = 0;
 let isPaused = false;
@@ -592,6 +586,7 @@ let movementDetector;
 let previousFrame = null;
 let movementDetected = false;
 let lastMovementTime = 0;
+let lastLogTime = 0;
 
 // NUEVA VARIABLE: Control de pausa de detección
 let isInCooldownPeriod = false;
@@ -605,15 +600,12 @@ let recordingTimeout;
 let recordingStartTime;
 let countdownInterval;
 let audioStream = null;
-let initialZoom = 3;
+let initialZoom = 10;
 let videoDuration = 10000;
 let currentMimeType = null;
 
 // Variables para detección de colores
-let colorDetected = false;
-let lastColorDetectionTime = 0;
-const COLOR_DETECTION_COOLDOWN = 3000; // 3 segundos entre detecciones
-const MOVEMENT_DETECTION_COOLDOWN = 5000;
+const MOVEMENT_DETECTION_COOLDOWN = 15000;
 // Configuración
 const ZOOM_HOLD_DURATION = 8000;
 const DETECTION_INTERVAL = 500;
@@ -622,14 +614,13 @@ const DETECTION_COOLDOWN_DURATION = 3000; // 3 segundos sin detectar mientras vu
 const movementSensitivitySlider = document.getElementById('movement-sensitivity');
 const movementSensitivityValue = document.getElementById('movement-sensitivity-value');
 const detectMovementCheckbox = document.getElementById('detect-movement');
-const MOVEMENT_THRESHOLD_BASE = 45; // Umbral base más alto (era ~30)
-const MOVEMENT_PIXELS_MIN_PERCENTAGE = 3.5; // Mínimo 3.5% de píxeles deben cambiar
-const MOVEMENT_STABILIZATION_FRAMES = 3; // Necesita 3 frames consecutivos para confirmarf
+const MOVEMENT_THRESHOLD_BASE = 80; // Umbral base más alto (era ~30)
+const MOVEMENT_PIXELS_MIN_PERCENTAGE = 8.5; // Mínimo 3.5% de píxeles deben cambiar
+const MOVEMENT_STABILIZATION_FRAMES = 2; // Necesita 3 frames consecutivos para confirmarf
+const LOG_THROTTLE_MS = 2000;
 // Instancias de las clases
 let zoomManager;
-let personDetector;
 let photoCapture;
-let colorDetector;
 
 // Event listeners para sliders
 photoCountSlider.addEventListener('input', () => {
@@ -664,8 +655,13 @@ movementSensitivitySlider.addEventListener('input', () => {
 initialZoomSlider.addEventListener('input', () => {
     initialZoom = parseFloat(initialZoomSlider.value);
     initialZoomValue.textContent = initialZoom + 'x';
-    if (zoomManager && !isInCooldownPeriod) {
+    
+    // Solo aplicar el zoom si no estamos en transición automática y no hay cooldown
+    if (zoomManager && !zoomManager.isInTransition() && !isInCooldownPeriod) {
         zoomManager.setTargetZoom(initialZoom);
+        logDebug(`🎚️ Zoom manual ajustado a ${initialZoom}x`);
+    } else if (zoomManager && zoomManager.isInTransition()) {
+        logDebug(`⏳ Zoom en transición, cambio manual será aplicado después`);
     }
 });
 
@@ -674,106 +670,7 @@ videoDurationSlider.addEventListener('input', () => {
     videoDurationValue.textContent = videoDurationSlider.value + 's';
 });
 
-// Clase para detección de colores MEJORADA
-class ColorDetector {
-    constructor(videoElement, canvasElement) {
-        this.video = videoElement;
-        this.canvas = canvasElement;
-        this.ctx = this.canvas.getContext('2d');
-        this.colorCanvas = document.createElement('canvas');
-        this.colorCtx = this.colorCanvas.getContext('2d');
-        this.analysisSize = 320;
-    }
 
-    detectRedOrOrange() {
-        if (!this.video.videoWidth || !this.video.videoHeight || !zoomManager) {
-            return { detected: false, color: null };
-        }
-
-        try {
-            const videoWidth = this.video.videoWidth;
-            const videoHeight = this.video.videoHeight;
-            const isLandscape = videoWidth > videoHeight;
-            
-            // IMPORTANTE: Aplicar el zoom actual a la detección
-            const currentZoom = zoomManager.currentZoom;
-            
-            // Calcular el área visible con zoom
-            const visibleWidth = videoWidth / currentZoom;
-            const visibleHeight = videoHeight / currentZoom;
-            const offsetX = (videoWidth - visibleWidth) / 2;
-            const offsetY = (videoHeight - visibleHeight) / 2;
-            
-            // Ajustar el canvas de análisis
-            if (isLandscape) {
-                this.colorCanvas.width = this.analysisSize;
-                this.colorCanvas.height = Math.floor(this.analysisSize * (visibleHeight / visibleWidth));
-            } else {
-                this.colorCanvas.width = Math.floor(this.analysisSize * (visibleWidth / visibleHeight));
-                this.colorCanvas.height = this.analysisSize;
-            }
-            
-            // Dibujar SOLO el área visible con zoom
-            this.colorCtx.drawImage(
-                this.video, 
-                offsetX, offsetY, visibleWidth, visibleHeight,  // Área fuente con zoom
-                0, 0, this.colorCanvas.width, this.colorCanvas.height  // Área destino
-            );
-            
-            const imageData = this.colorCtx.getImageData(0, 0, this.colorCanvas.width, this.colorCanvas.height);
-            const data = imageData.data;
-
-            let redPixels = 0;
-            let orangePixels = 0;
-            const totalPixels = data.length / 4;
-            
-            // Ajustar umbral según orientación y zoom
-            const zoomFactor = Math.max(1, currentZoom / 3); // Factor de ajuste por zoom
-            const minPixelPercentage = (isLandscape ? 0.015 : 0.02) * zoomFactor;
-
-            for (let i = 0; i < data.length; i += 4) {
-                const r = data[i];
-                const g = data[i + 1];
-                const b = data[i + 2];
-
-                // Detección de rojo
-                if (r > 140 && g < 90 && b < 90 && (r - g) > 50) {
-                    redPixels++;
-                }
-                // Detección de naranja
-                else if (r > 180 && g > 90 && g < 190 && b < 120 && (r - b) > 60) {
-                    orangePixels++;
-                }
-            }
-
-            const redPercentage = redPixels / totalPixels;
-            const orangePercentage = orangePixels / totalPixels;
-
-            if (redPercentage > minPixelPercentage) {
-                return { 
-                    detected: true, 
-                    color: 'rojo', 
-                    percentage: (redPercentage * 100).toFixed(2),
-                    orientation: isLandscape ? 'horizontal' : 'vertical',
-                    zoom: currentZoom.toFixed(1)
-                };
-            } else if (orangePercentage > minPixelPercentage) {
-                return { 
-                    detected: true, 
-                    color: 'naranja', 
-                    percentage: (orangePercentage * 100).toFixed(2),
-                    orientation: isLandscape ? 'horizontal' : 'vertical',
-                    zoom: currentZoom.toFixed(1)
-                };
-            }
-
-            return { detected: false, color: null };
-        } catch (error) {
-            logDebug(`Error en detección de color: ${error.message}`);
-            return { detected: false, color: null };
-        }
-    }
-}
 class MovementDetector {
     constructor(videoElement, canvasElement) {
         this.video = videoElement;
@@ -909,57 +806,37 @@ class MovementDetector {
     }
     
     validateMovementWithHistory(movementResult) {
-        const percentage = parseFloat(movementResult.percentage);
-        this.lastMovementPercentage = percentage;
-        
-        // Agregar al historial (mantener solo últimos 5 frames)
-        this.frameHistory.push(percentage);
-        if (this.frameHistory.length > 5) {
-            this.frameHistory.shift();
-        }
-        
-        // CRITERIOS MÚLTIPLES PARA VALIDAR MOVIMIENTO REAL
-        const minPercentageRequired = MOVEMENT_PIXELS_MIN_PERCENTAGE;
-        const isAboveMinimum = percentage > minPercentageRequired;
-        
-        // Verificar que no sea solo ruido (cambios muy pequeños)
-        const isSignificantChange = percentage > (minPercentageRequired * 1.5);
-        
-        // Verificar consistencia en frames recientes
-        const recentHighMovement = this.frameHistory.filter(p => p > minPercentageRequired).length;
-        const hasConsistentMovement = recentHighMovement >= 2;
-        
-        // Detectar movimiento súbito (cambio dramático)
-        const previousAvg = this.frameHistory.length > 1 ? 
-            this.frameHistory.slice(0, -1).reduce((a, b) => a + b, 0) / (this.frameHistory.length - 1) : 0;
-        const isSuddenMovement = percentage > (previousAvg * 2.5) && percentage > minPercentageRequired;
-        
-        if (isAboveMinimum && (isSignificantChange || hasConsistentMovement || isSuddenMovement)) {
-            this.consecutiveDetections++;
-            
-            // Requiere al menos N detecciones consecutivas O un movimiento súbito muy alto
-            const isConfirmed = this.consecutiveDetections >= MOVEMENT_STABILIZATION_FRAMES || 
-                               (isSuddenMovement && percentage > minPercentageRequired * 2);
-            
-            if (isConfirmed) {
-                return {
-                    detected: true,
-                    confidence: isSuddenMovement ? 'high' : 'medium'
-                };
-            } else {
-                return {
-                    detected: false,
-                    confidence: 'building'
-                };
-            }
-        } else {
-            this.consecutiveDetections = Math.max(0, this.consecutiveDetections - 1);
-            return {
-                detected: false,
-                confidence: 'low'
-            };
-        }
+    const percentage = parseFloat(movementResult.percentage);
+    this.lastMovementPercentage = percentage;
+    
+    // Agregar al historial (mantener solo últimos 3 frames)
+    this.frameHistory.push(percentage);
+    if (this.frameHistory.length > 3) {
+        this.frameHistory.shift();
     }
+    
+    // CRITERIO SIMPLE: Solo movimientos MUY grandes
+    const isLargeMovement = percentage > (MOVEMENT_PIXELS_MIN_PERCENTAGE * 1.5); // 12%
+    const isVeryLargeMovement = percentage > (MOVEMENT_PIXELS_MIN_PERCENTAGE * 2); // 16%
+    
+    // Verificar que no sea fluctuación (comparar con frame anterior)
+    const previousFrame = this.frameHistory.length > 1 ? this.frameHistory[this.frameHistory.length - 2] : 0;
+    const isStableIncrease = percentage > (previousFrame * 1.8); // 80% más que el anterior
+    
+    if (isVeryLargeMovement || (isLargeMovement && isStableIncrease)) {
+        this.consecutiveDetections = 0; // Reset contador
+        return {
+            detected: true,
+            confidence: isVeryLargeMovement ? 'very_high' : 'high'
+        };
+    } else {
+        this.consecutiveDetections = 0;
+        return {
+            detected: false,
+            confidence: 'too_low'
+        };
+    }
+}
 }
 
 // Clase ZoomManager MEJORADA
@@ -968,20 +845,69 @@ class ZoomManager {
         this.video = videoElement;
         this.canvas = canvasElement;
         this.ctx = contextElement;
-        this.currentZoom = 3;
-        this.targetZoom = 3;
-        this.transitionSpeed = 0.15;
-        this.maxZoom = 8;
+        this.currentZoom = 10;
+        this.targetZoom = 10;
+        // TRANSICIÓN MÁS LENTA para que se aprecie el zoom
+        this.transitionSpeed = 0.05; // Reducido de 0.15 a 0.05 (más lento)
+        this.maxZoom = 15;
         this.minZoom = 1;
+        
+        // NUEVAS VARIABLES para transición progresiva
+        this.isTransitioning = false;
+        this.transitionStartTime = 0;
+        this.transitionDuration = 3000; // 3 segundos para la transición completa
+        this.startZoom = 10;
+        this.transitionCallback = null;
     }
 
+    // Método para iniciar transición progresiva con duración personalizada
+    startProgressiveTransition(targetZoom, duration = 3000, callback = null) {
+        this.startZoom = this.currentZoom;
+        this.targetZoom = Math.max(this.minZoom, Math.min(this.maxZoom, targetZoom));
+        this.isTransitioning = true;
+        this.transitionStartTime = Date.now();
+        this.transitionDuration = duration;
+        this.transitionCallback = callback;
+        
+        logDebug(`🎯 Iniciando transición progresiva: ${this.startZoom.toFixed(1)}x → ${this.targetZoom}x en ${duration/1000}s`);
+    }
+
+    // Método tradicional para cambios rápidos (configuraciones)
     setTargetZoom(zoom) {
-        this.targetZoom = Math.max(this.minZoom, Math.min(this.maxZoom, zoom));
-        logDebug(`Zoom objetivo: ${this.targetZoom}x`);
+        if (!this.isTransitioning) {
+            this.targetZoom = Math.max(this.minZoom, Math.min(this.maxZoom, zoom));
+            logDebug(`Zoom objetivo: ${this.targetZoom}x`);
+        }
     }
 
     updateZoom() {
-        if (Math.abs(this.currentZoom - this.targetZoom) > 0.01) {
+        if (this.isTransitioning) {
+            // TRANSICIÓN PROGRESIVA SUAVE
+            const elapsed = Date.now() - this.transitionStartTime;
+            const progress = Math.min(elapsed / this.transitionDuration, 1);
+            
+            // Usar función de easing para transición más natural
+            const easedProgress = this.easeInOutCubic(progress);
+            
+            this.currentZoom = this.startZoom + (this.targetZoom - this.startZoom) * easedProgress;
+            
+            // Verificar si la transición ha terminado
+            if (progress >= 1) {
+                this.currentZoom = this.targetZoom;
+                this.isTransitioning = false;
+                
+                logDebug(`✅ Transición progresiva completada: ${this.currentZoom.toFixed(1)}x`);
+                
+                // Ejecutar callback si existe
+                if (this.transitionCallback) {
+                    this.transitionCallback();
+                    this.transitionCallback = null;
+                }
+            }
+            
+            this.updateZoomInfo();
+        } else if (Math.abs(this.currentZoom - this.targetZoom) > 0.01) {
+            // TRANSICIÓN TRADICIONAL (para ajustes del slider)
             const difference = this.targetZoom - this.currentZoom;
             this.currentZoom += difference * this.transitionSpeed;
             
@@ -993,8 +919,32 @@ class ZoomManager {
         }
     }
 
+    // Función de easing para transición más natural
+    easeInOutCubic(t) {
+        return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+    }
+
     updateZoomInfo() {
-        zoomInfo.textContent = `Zoom: ${this.currentZoom.toFixed(1)}x`;
+        if (this.isTransitioning) {
+            const progress = Math.min((Date.now() - this.transitionStartTime) / this.transitionDuration, 1) * 100;
+            zoomInfo.textContent = `Zoom: ${this.currentZoom.toFixed(1)}x (${progress.toFixed(0)}%)`;
+        } else {
+            zoomInfo.textContent = `Zoom: ${this.currentZoom.toFixed(1)}x`;
+        }
+    }
+
+    // Método para verificar si está en transición
+    isInTransition() {
+        return this.isTransitioning;
+    }
+
+    // Método para cancelar transición actual
+    cancelTransition() {
+        if (this.isTransitioning) {
+            this.isTransitioning = false;
+            this.transitionCallback = null;
+            logDebug(`🛑 Transición cancelada en zoom ${this.currentZoom.toFixed(1)}x`);
+        }
     }
 
     renderFrame() {
@@ -1047,77 +997,6 @@ class ZoomManager {
         } catch (error) {
             // Silenciar errores temporales
         }
-    }
-}
-
-// Clase para detección de personas
-class PersonDetector {
-    constructor() {
-        this.model = null;
-        this.isLoaded = false;
-    }
-
-    async loadModel() {
-        try {
-            logDebug("Cargando modelo COCO-SSD...");
-            loadingOverlay.style.display = 'flex';
-            modelStatus.textContent = 'Cargando...';
-            
-            if (typeof cocoSsd === 'undefined') {
-                throw new Error('COCO-SSD no está disponible');
-            }
-            
-            this.model = await cocoSsd.load();
-            this.isLoaded = true;
-            modelStatus.textContent = 'Cargado ✅';
-            loadingOverlay.style.display = 'none';
-            logDebug("Modelo COCO-SSD cargado exitosamente");
-        } catch (error) {
-            logDebug(`Error cargando modelo: ${error.message}`);
-            modelStatus.textContent = 'Error ❌';
-            loadingOverlay.style.display = 'none';
-            this.isLoaded = false;
-        }
-    }
-
-    async detectPersonsAndObjects() {
-        if (!this.isLoaded || !this.model) return { persons: [], objects: [] };
-
-        try {
-            const predictions = await this.model.detect(video);
-            const confidence = detectionConfidenceSlider.value / 100;
-            
-            const validPredictions = predictions.filter(p => p.score > confidence);
-            const persons = validPredictions.filter(p => p.class === 'person');
-            const objects = validPredictions.filter(p => p.class !== 'person');
-            
-            return {
-                persons: persons,
-                objects: objects,
-                all: validPredictions
-            };
-        } catch (error) {
-            logDebug(`Error en detección: ${error.message}`);
-            return { persons: [], objects: [] };
-        }
-    }
-
-    async detectPerson() {
-        const detection = await this.detectPersonsAndObjects();
-        return detection.persons.length > 0;
-    }
-
-    async detectBodyParts() {
-        const detection = await this.detectPersonsAndObjects();
-        const bodyRelatedObjects = detection.objects.filter(obj => 
-            ['bottle', 'cup', 'cell phone', 'handbag', 'backpack'].includes(obj.class)
-        );
-        
-        return {
-            detected: bodyRelatedObjects.length > 0,
-            objects: bodyRelatedObjects,
-            persons: detection.persons
-        };
     }
 }
 
@@ -1265,7 +1144,18 @@ class PhotoCapture {
 }
 
 // Función de logging
-function logDebug(message) {
+function logDebug(message, forceLog = false) {
+    const now = Date.now();
+    
+    // Filtrar mensajes de debug frecuentes
+    if (!forceLog && message.includes('📊') && (now - lastLogTime < LOG_THROTTLE_MS)) {
+        return; // Ignorar logs de movimiento frecuentes
+    }
+    
+    if (message.includes('📊')) {
+        lastLogTime = now;
+    }
+    
     const timestamp = new Date().toLocaleTimeString();
     const logMessage = `[${timestamp}] ${message}`;
     console.log(logMessage);
@@ -1274,8 +1164,8 @@ function logDebug(message) {
     debugConsole.scrollTop = debugConsole.scrollHeight;
     
     const lines = debugConsole.textContent.split('\n');
-    if (lines.length > 100) {
-        debugConsole.textContent = lines.slice(-100).join('\n');
+    if (lines.length > 50) { // Reducir líneas mantenidas
+        debugConsole.textContent = lines.slice(-50).join('\n');
     }
 }
 
@@ -1468,7 +1358,7 @@ function downloadVideo(blob, isMp4 = false) {
 
 // FUNCIÓN PRINCIPAL DE DETECCIÓN MODIFICADA
 async function performDetection() {
-    if (!personDetector || !personDetector.isLoaded || !colorDetector || isVideoRecording) return;
+   if (isVideoRecording) return;
 
     // VERIFICAR SI ESTAMOS EN PERÍODO DE COOLDOWN
     if (isInCooldownPeriod) {
@@ -1489,95 +1379,66 @@ async function performDetection() {
         let shouldCapture = false;
         let captureReason = '';
 
-        // Detección de personas
-        if (detectPersonsCheckbox.checked) {
-            const personDetected = await personDetector.detectPerson();
-            
-            if (personDetected) {
-                shouldCapture = true;
-                captureReason = 'Persona detectada';
-                updateStatus('¡Persona detectada!', 'detected');
-                updatePersonCount(1);
-                logDebug('👤 Persona detectada');
-            } else {
-                updatePersonCount(0);
-            }
-        }
-
-        // Detección de partes del cuerpo
-        if (detectBodyPartsCheckbox.checked && !shouldCapture) {
-            const bodyPartsDetection = await personDetector.detectBodyParts();
-            if (bodyPartsDetection.detected) {
-                shouldCapture = true;
-                captureReason = 'Partes del cuerpo detectadas';
-                updateStatus('¡Partes del cuerpo detectadas!', 'detected');
-                logDebug(`🦴 Objetos detectados: ${bodyPartsDetection.objects.map(o => o.class).join(', ')}`);
-            }
-        }
-
-        // Detección de colores
-       
-        if (detectColorsCheckbox.checked) {
-            const colorDetection = colorDetector.detectRedOrOrange();
-            if (colorDetection.detected && currentTime - lastColorDetectionTime > COLOR_DETECTION_COOLDOWN) {
-                shouldCapture = true;
-            captureReason = `Color ${colorDetection.color} detectado`;
-            updateStatus(`¡Color ${colorDetection.color} detectado! (${colorDetection.percentage}%) - Zoom: ${colorDetection.zoom}x`, 'motion');
-            logDebug(`🎨 Color ${colorDetection.color} detectado: ${colorDetection.percentage}% en zoom ${colorDetection.zoom}x`);
-            lastColorDetectionTime = currentTime;
-            }
-        }
         // Detección de movimiento
-          if (detectMovementCheckbox.checked && !shouldCapture) {
-    const movementDetection = movementDetector.detectMovement();
-    
-    // Solo activar si la detección es confiable y ha pasado el cooldown
-    if (movementDetection.detected && 
-        movementDetection.confidence !== 'low' && 
-        currentTime - lastMovementTime > MOVEMENT_DETECTION_COOLDOWN) {
-        
-        shouldCapture = true;
-        captureReason = `Movimiento ${movementDetection.confidence} detectado (${movementDetection.percentage}%)`;
-        
-        updateStatus(`¡Movimiento ${movementDetection.confidence}! ${movementDetection.percentage}% (${movementDetection.pixelsChanged} bloques cambiaron)`, 'motion');
-        logDebug(`🏃 Movimiento ${movementDetection.confidence}: ${movementDetection.percentage}% - Umbral: ${movementDetection.threshold} - Bloques: ${movementDetection.pixelsChanged}`);
-        lastMovementTime = currentTime;
-    }
-    
-    // Log opcional para debugging (solo si el porcentaje es mayor a 1%)
-    if (parseFloat(movementDetection.percentage) > 1.0 && movementDetection.confidence !== 'low') {
-        logDebug(`📊 Movimiento detectado pero no activado: ${movementDetection.percentage}% (${movementDetection.confidence}) - Cooldown: ${Math.max(0, MOVEMENT_DETECTION_COOLDOWN - (currentTime - lastMovementTime))}ms restantes`);
-    }
-}
+        if (detectMovementCheckbox.checked && !shouldCapture) {
+            const movementDetection = movementDetector.detectMovement();
+            
+            // Solo activar movimientos GRANDES y después del cooldown
+            if (movementDetection.detected && 
+                (movementDetection.confidence === 'high' || movementDetection.confidence === 'very_high') &&
+                currentTime - lastMovementTime > MOVEMENT_DETECTION_COOLDOWN) {
+                
+                shouldCapture = true;
+                captureReason = `Movimiento GRANDE detectado (${movementDetection.percentage}%)`;
+                
+                updateStatus(`¡MOVIMIENTO GRANDE! ${movementDetection.percentage}%`, 'motion');
+                logDebug(`🚨 MOVIMIENTO GRANDE: ${movementDetection.percentage}%`);
+                lastMovementTime = currentTime;
+            }
+            
+            // Solo logear si es realmente significativo (>10%)
+            if (parseFloat(movementDetection.percentage) > 10.0) {
+                logDebug(`📊 Movimiento ${movementDetection.percentage}% - No suficiente para activar`);
+            }
+        }
 
         // Realizar captura si se detectó algo
         if (shouldCapture) {
-            // Hacer zoom out a 1x para capturar
-            zoomManager.setTargetZoom(1);
+            // *** CAMBIO PRINCIPAL: Usar transición progresiva en lugar de cambio instantáneo ***
+            logDebug(`🎬 Iniciando zoom progresivo de ${zoomManager.currentZoom.toFixed(1)}x a 1x`);
             
-            if (autoCaptureCheckbox.checked && !photoCapture.isCapturing) {
-                await photoCapture.startCapturing(captureReason);
-            }
+            // Iniciar transición progresiva a 1x con duración de 2.5 segundos
+            zoomManager.startProgressiveTransition(1, 2500, () => {
+                logDebug("📸 Transición de zoom completada, listo para captura");
+            });
             
-            if (autoRecordCheckbox.checked && !isVideoRecording) {
-                await startAutoVideoRecording();
-            }
+            // Esperar un poco antes de capturar para que se aprecie el zoom
+            setTimeout(async () => {
+                if (autoCaptureCheckbox.checked && !photoCapture.isCapturing) {
+                    await photoCapture.startCapturing(captureReason);
+                }
+                
+                if (autoRecordCheckbox.checked && !isVideoRecording) {
+                    await startAutoVideoRecording();
+                }
+            }, 1000); // Esperar 1 segundo para que se vea la transición
             
-            // INICIAR PERÍODO DE COOLDOWN
+            // INICIAR PERÍODO DE COOLDOWN con transición progresiva de vuelta
             clearTimeout(zoomResetTimeout);
             zoomResetTimeout = setTimeout(() => {
                 // Activar período de cooldown
                 isInCooldownPeriod = true;
                 cooldownEndTime = Date.now() + DETECTION_COOLDOWN_DURATION;
                 
-                // Volver al zoom inicial
-                zoomManager.setTargetZoom(initialZoom);
-                
                 logDebug(`⏸️ Iniciando período de cooldown de ${DETECTION_COOLDOWN_DURATION/1000} segundos`);
-                updateStatus('Volviendo al zoom inicial...', 'waiting');
+                updateStatus('Regresando al zoom inicial...', 'waiting');
                 
-                // El cooldown se desactiva automáticamente en la próxima llamada a performDetection
-            }, 10000); // Esperar 10 segundos después de la detección antes de volver
+                // *** TRANSICIÓN PROGRESIVA DE VUELTA AL ZOOM INICIAL ***
+                zoomManager.startProgressiveTransition(initialZoom, 3000, () => {
+                    logDebug(`🎯 Zoom regresado a ${initialZoom}x - Sistema en cooldown`);
+                });
+                
+            }, videoDuration);
         }
 
         // Estado idle
@@ -1589,6 +1450,7 @@ async function performDetection() {
         logDebug(`Error en detección: ${error.message}`);
     }
 }
+
 
 // Verificar compatibilidad del navegador
 function checkBrowserCompatibility() {
@@ -1706,14 +1568,10 @@ async function initializeDetectors() {
         zoomManager.setTargetZoom(initialZoom);
         logDebug(`✅ Zoom manager inicializado con zoom ${initialZoom}x`);
         
-        colorDetector = new ColorDetector(video, canvas);
-        logDebug("✅ Detector de colores inicializado");
+
         movementDetector = new MovementDetector(video, canvas);
         logDebug("✅ Detector de movimiento inicializado");
         
-        personDetector = new PersonDetector();
-        await personDetector.loadModel();
-        logDebug("✅ Detector de personas inicializado");
         
         photoCapture = new PhotoCapture();
         photoCapture.setAutoDownload(true);
@@ -1731,11 +1589,11 @@ async function initializeDetectors() {
 function startAllProcesses() {
     if (isRecording) return;
     
-    if (!zoomManager || !colorDetector || !personDetector) {
-        logDebug("Esperando inicialización de detectores...");
-        setTimeout(startAllProcesses, 1000);
-        return;
-    }
+    if (!zoomManager) {
+    logDebug("Esperando inicialización de detectores...");
+    setTimeout(startAllProcesses, 1000);
+    return;
+}
     
     isRecording = true;
     
@@ -1761,6 +1619,11 @@ function startAllProcesses() {
 // Funciones de actualización de UI
 function updateStatus(message, type) {
     if (movementStatus) {
+        // Si hay transición de zoom, añadir indicador
+        if (zoomManager && zoomManager.isInTransition()) {
+            message += ' 🎬';
+        }
+        
         movementStatus.textContent = message;
         movementStatus.className = `status-${type}`;
         logDebug(`📊 Estado: ${message}`);
@@ -1852,7 +1715,7 @@ function stopAllProcesses() {
     }
     
     updateStatus('Sistema detenido', 'waiting');
-    updatePersonCount(0);
+    
     
     logDebug("Sistema detenido completamente");
 }
@@ -1870,100 +1733,13 @@ function setupCanvasResponsiveness() {
     resizeCanvas();
 }
 
-// Funciones adicionales de control
-async function downloadAllPhotos() {
-    const photos = document.querySelectorAll('.captured-photo');
-    if (photos.length === 0) {
-        logDebug("❌ No hay fotos para descargar");
-        return;
-    }
-    
-    logDebug(`📦 Descargando ${photos.length} fotos...`);
-    
-    photos.forEach((img, index) => {
-        setTimeout(() => {
-            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-            const filename = `foto_galeria_${index + 1}_${timestamp}`;
-            photoCapture.downloadPhoto(img.src, filename);
-        }, index * 200);
-    });
-}
-
-async function captureHighQualityPhoto() {
-    if (!video.videoWidth || !video.videoHeight) {
-        logDebug("❌ Video no disponible para captura de alta calidad");
-        return;
-    }
-    
-    try {
-        const hqCanvas = document.createElement('canvas');
-        const hqCtx = hqCanvas.getContext('2d');
-        
-        hqCanvas.width = video.videoWidth;
-        hqCanvas.height = video.videoHeight;
-        
-        hqCtx.drawImage(video, 0, 0);
-        
-        const hqPhotoData = hqCanvas.toDataURL('image/png', 1.0);
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const filename = `foto_hq_${timestamp}`;
-        
-        const link = document.createElement('a');
-        link.href = hqPhotoData;
-        link.download = `${filename}.png`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        
-        logDebug(`📸 Foto de alta calidad capturada: ${filename}.png`);
-        
-    } catch (error) {
-        logDebug(`❌ Error en captura de alta calidad: ${error.message}`);
-    }
-}
-
-// Agregar controles adicionales
-function addDownloadControls() {
-    const controlsDiv = document.querySelector('.controls');
-    if (!controlsDiv) return;
-    
-    const autoDownloadBtn = document.createElement('button');
-    autoDownloadBtn.textContent = '💾 Descarga Auto: ON';
-    autoDownloadBtn.className = 'btn-secondary';
-    autoDownloadBtn.onclick = () => {
-        if (photoCapture) {
-            photoCapture.autoDownload = !photoCapture.autoDownload;
-            autoDownloadBtn.textContent = `💾 Descarga Auto: ${photoCapture.autoDownload ? 'ON' : 'OFF'}`;
-            autoDownloadBtn.className = photoCapture.autoDownload ? 'btn-primary' : 'btn-secondary';
-        }
-    };
-    
-    const downloadAllBtn = document.createElement('button');
-    downloadAllBtn.textContent = '📦 Descargar Todas';
-    downloadAllBtn.className = 'btn-secondary';
-    downloadAllBtn.onclick = downloadAllPhotos;
-    
-    const hqPhotoBtn = document.createElement('button');
-    hqPhotoBtn.textContent = '📸 Foto Alta Calidad';
-    hqPhotoBtn.className = 'btn-secondary';
-    hqPhotoBtn.onclick = captureHighQualityPhoto;
-    
-    const clearBtn = controlsDiv.querySelector('button[onclick*="clearPhotos"]');
-    if (clearBtn) {
-        controlsDiv.insertBefore(autoDownloadBtn, clearBtn);
-        controlsDiv.insertBefore(downloadAllBtn, clearBtn);
-        controlsDiv.insertBefore(hqPhotoBtn, clearBtn);
-    } else {
-        controlsDiv.appendChild(autoDownloadBtn);
-        controlsDiv.appendChild(downloadAllBtn);
-        controlsDiv.appendChild(hqPhotoBtn);
-    }
-}
-
 // Inicialización principal
 document.addEventListener('DOMContentLoaded', function() {
     logDebug("🚀 Sistema de detección (Personas y Colores) iniciando...");
     setupCanvasResponsiveness();
+    // Inicializar valor de sensibilidad al cargar
+movementSensitivitySlider.value = 20;
+movementSensitivityValue.textContent = '20% (Muy sensible - detecta movimientos sutiles)';
     
     if (!checkBrowserCompatibility()) {
         return;
@@ -1972,7 +1748,7 @@ document.addEventListener('DOMContentLoaded', function() {
     updateStatus('Preparando sistema...', 'waiting');
     
     // Agregar controles después de un breve delay
-    setTimeout(addDownloadControls, 500);
+
     
     // Botón manual para iniciar
     const startButton = document.createElement('button');
